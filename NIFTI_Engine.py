@@ -243,7 +243,7 @@ def extractSlices(w, h, d, root, orientation, exclusions="na", limit=-1):
                                 #print("Midpoint is", mid)
                                 #print("Appended x element:", image_data[:,:,mid].shape)
                                 #print("Original shape:", image_data.shape)
-                                sliced = image_data[:,:,mid]
+                                sliced = image_data[mid,:,:]
                                 sliced = np.array(sliced)
                                 #print("Slice shape:", sliced.shape)
                                 sliced = np.squeeze(sliced)
@@ -259,7 +259,7 @@ def extractSlices(w, h, d, root, orientation, exclusions="na", limit=-1):
                                 #print("Midpoint is", mid)
                                 #print("Appended x element:", image_data[:,:,mid].shape)
                                 #print("Original shape:", image_data.shape)
-                                sliced = image_data[:,:,mid]
+                                sliced = image_data[:,mid,:]
                                 sliced = np.array(sliced)
                                 #print("Slice shape:", sliced.shape)
                                 sliced = np.squeeze(sliced)
@@ -281,8 +281,10 @@ def extractSlices(w, h, d, root, orientation, exclusions="na", limit=-1):
                                 sliced = np.squeeze(sliced)
                                 #print("Squeeze shape:", sliced.shape)
                                 # Try make this a 3-channel image
-                                img = cv2.merge((sliced,sliced,sliced))
+                                img = cv2.merge((sliced,sliced,sliced))                               
                                 #print("3-channel shape:", img.shape)
+                                imagename = "Grad-Originals\\brain_slice_"+str(count-1)+".png"
+                                plt.imsave(imagename, img, cmap='bone')
                                 img = np.transpose(img, (2, 0, 1))
                                 #print("Reordered shape:", img.shape)
                                 scan_array.append(img)
