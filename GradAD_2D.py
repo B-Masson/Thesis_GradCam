@@ -40,7 +40,7 @@ data_loader = DataLoader(data, batch_size= 1, shuffle=False) # Set shuffle to tr
 
 # Cam injection
 print("Done. Attempting injection...")
-model = medcam.inject(model, output_dir='Grad-Maps', backend='gcam', layer='layer4', label='best', save_maps=True)
+model = medcam.inject(model, output_dir='Grad-Maps-2D', backend='gcam', layer='layer4', label='best', save_maps=True)
 print("Injection successful.")
 
 for i in range (len(data_loader)):
