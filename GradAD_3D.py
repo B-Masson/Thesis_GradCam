@@ -95,6 +95,66 @@ class TorchBrain(nn.Module):
         
         return out
 
+class TorchBrainModel2(nn.Module):
+    def __init__(self):
+        super(TorchBrain, self).__init__()
+        # Input size is 208, 240, 256, 1
+        # Step 1: First layer
+        self.conv1 = nn.Conv3d(1, 8, 3, padding='same')
+        self.relu = nn.LeakyReLU()
+        self.pool = nn.MaxPool3d(2)
+        
+        # Step 2: More layers
+        self.conv2 = nn.Conv3d(8, 16, 3, padding='same')
+        
+        self.conv3 = nn.Conv3d(16, 32, 3, padding='same')
+        
+        self.conv4 = nn.Conv3d(32, 64, 3, padding='same')
+
+        # Step 3: Flatten and dense layer
+        self.flatten = nn.Flatten()
+        self.dense1 = nn.Linear(368000, 128) #???
+
+        # Step 5: Final Dense layer, softmax
+        self.dense2 = nn.Linear(128, 64)
+        self.dense3 = nn.Linear(64, class_no)
+        self.softmax = nn.Softmax(dim=1)
+        
+    def forward(self, x):
+        print("Forward pass...")
+        #print("Input shape:", x.shape)
+        out = self.conv1(x)
+        #print("After Conv (1):", out.shape)
+        out = self.relu(out)
+        #print("After Relu:", out.shape)
+        out = self.pool(out)
+        
+        out = self.conv2(out)
+        out = self.relu(out)
+        out = self.pool(out)
+        
+        out = self.conv3(out)
+        out = self.relu(out)
+        out = self.pool(out)
+        
+        out = self.conv4(out)
+        out = self.relu(out)
+        out = self.pool(out)
+        
+        #print("After Pooling (1):", out.shape)
+        out = self.flatten(out)
+        #print("After flattening:", out.shape)
+        out = self.dense1(out)
+        #print("After Dense (1):", out.shape)
+        out = self.dense2(out)
+        #print("After Dense (2):")
+        out = self.dense3(out)
+        #print("After Dense (3):")
+        out = self.softmax(out)
+        #print("After Softmax:", out.shape)
+        
+        return out
+
 class TorchBrain2D(nn.Module): # For more complex model
     def __init__(self):
         super(TorchBrain, self).__init__()
