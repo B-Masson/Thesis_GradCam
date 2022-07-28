@@ -32,7 +32,8 @@ if memory_mode:
     torch.backends.cudnn.enabled = True
     GPUtil.showUtilization()
 
-model_name = "ADModel_TWIN_v1.5_strip.h5"
+#model_name = "ADModel_TWIN_v1.5_strip.h5"
+model_name = "ADModel_2D_V1.h5"
 model = load_model(model_name)
 print("Keras model loaded in.")
 #GPUtil.showUtilization()
@@ -94,27 +95,20 @@ class TorchBrain(nn.Module):
         
         return out
 
-class TorchBrain2(nn.Module): # For more complex model
+class TorchBrain2D(nn.Module): # For more complex model
     def __init__(self):
         super(TorchBrain, self).__init__()
         # Input size is 208, 240, 256, 1
-        # Step 1: Conv3D, 32 filters, 5x kernel, relu (5, 5, 5, 1, 32)
-        self.conv1 = nn.Conv3d(1, 32, 5)
+        # Step 1: Conv3D, 32 filters, 3x kernel, relu (3, 3, 3, 1, 32)
+        self.conv = nn.Conv2d(1, 32, 3, padding='valid')
         self.relu = nn.LeakyReLU()
-        self.pool1 = nn.MaxPool3d(2)
-        self.batch1 = nn.BatchNorm3d(32, eps=1e-3)
-        #Step 2: Same, but 64 filters
-        self.conv2 = nn.Conv3d(32, 64, 5)
-        # Relu go here
-        self.pool2 = nn.MaxPool3d(2)
-        self.batch2 = nn.BatchNorm3d(64, eps=1e-3)
-        # Step 4: Global ave, 128 Dense, Dropout 0.2
-        #self.pool3 = nn.AvgPool3d(64) #???
-        self.pool3 = nn.AdaptiveAvgPool3d(1) # Output size (1,1,1) to mimic GlobalAvePool
-        self.flatten = nn.Flatten() # Then flatten to effectively create a 1x64 layer
-        self.dense1 = nn.Linear(64, 128) #???
-        # Relu go here
-        self.drop = nn.Dropout(p=0.2)
+        # Step 2: 10x10, stride 10 max pooling
+        self.pool = nn.MaxPool2d(10, stride=10)
+
+        # Step 3: Flatten and dense layer
+        self.flatten = nn.Flatten()
+        self.dense1 = nn.Linear(368000, 128) #???
+
         # Step 5: Final Dense layer, softmax
         self.dense2 = nn.Linear(128, class_no)
         self.softmax = nn.Softmax(dim=1)
@@ -122,31 +116,16 @@ class TorchBrain2(nn.Module): # For more complex model
     def forward(self, x):
         print("Forward pass...")
         #print("Input shape:", x.shape)
-        out = self.conv1(x)
+        out = self.conv(x)
         #print("After Conv (1):", out.shape)
         out = self.relu(out)
         #print("After Relu:", out.shape)
-        out = self.pool1(out)
+        out = self.pool(out)
         #print("After Pooling (1):", out.shape)
-        out = self.batch1(out)
-        #print("After Batch Norm (1):", out.shape)
-        out = self.conv2(out)
-        #print("After Conv (2):", out.shape)
-        out = self.relu(out)
-        #print("After Relu (2):", out.shape)
-        out = self.pool2(out)
-        #print("After Pooling (2):", out.shape)
-        out = self.batch2(out)
-        #print("After Batch Norm (2):", out.shape)
-        #print("^^^ Right before MaxPooling:")
-        out = self.pool3(out)
-        #print("After AvgPool:", out.shape)
         out = self.flatten(out)
         #print("After flattening:", out.shape)
         out = self.dense1(out)
         #print("After Dense (1):", out.shape)
-        out = self.drop(out)
-        #print("After Dropout:", out.shape)
         out = self.dense2(out)
         #print("After Dense (2):")
         out = self.softmax(out)
@@ -264,7 +243,7 @@ print("Type [data_loader]:", data_loader)
 #layerchoice = "dense2"
 #print("Layer chosen:", layerchoice, "- Shape:", torchy.dense2.weight.data.shape)
 #print("Examples:", torchy.dense2.weight.data[:5])
-
+'''
 # Cam injection
 print("Done. Attempting injection...")
 cam_model = medcam.inject(torchy, output_dir='Grad-Maps', backend='gcampp', layer='relu', label='best', save_maps=True) # Removed label = 'best'
@@ -281,31 +260,8 @@ for i in range (len(path)):
     pred = cam_model(x)
     pred_read = pred.detach().cpu().numpy()
     print("Prediction #", i+1, ": ", pred_read[0], " | Actual: ", labels[i], sep='')
-'''
-for i in range (len(data_loader)):
-    batch = next(iter(data_loader))
-    print("Type [batch]:", type(batch))
-    #batch = torch.permute(batch, (0, 4, 1, 2, 3))
-    print("Batch shape:", batch[0].shape)
-    _ = cam_model(batch[0])
-'''
-#print("Image shape:", x.shape)
-#print("Image shape:", x.shape)
 
-'''
-x = np.swapaxes(x, 1, 4)
-x = np.swapaxes(x, 2, 3)
-print(x.shape)
-x_tense = torch.Tensor(x)
-print("Tensor generated.")
-#GPUtil.showUtilization()
-print("Clearing cache...")
-torch.cuda.empty_cache()
-if memory_mode:
-    GPUtil.showUtilization()
-x_tense = x_tense.to(device=device)
-_ = cam_model(x_tense)
-print("Predictions run.")
-#GPUtil.showUtilization()
+#print("Image shape:", x.shape)
+#print("Image shape:", x.shape)
 '''
 print("\nAll done.")
