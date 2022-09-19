@@ -3,7 +3,7 @@
 # Info: Trying to fix the model since I'm convinced it's scuffed.
 # Last use in 2021: October 29th
 print("\nIMPLEMENTATION: NEO")
-desc = "Batching boys (back to 2, just getting a 2nd run in there). Basic model."
+desc = "Basic model - testing 3class WITHOUT trimming. Testing new eval options."
 # TO DO: More batches
 # TO DO: USE THE NORM SET
 print(desc)
@@ -33,6 +33,8 @@ from collections import Counter
 from volumentations import * # OI, WE NEED TO CITE VOLUMENTATIONS NOW
 print("Imports working.")
 
+tic_total = perf_counter()
+
 # Attempt to better allocate memory.
 gpus = tf.config.experimental.list_physical_devices('GPU')
 for gpu in gpus:
@@ -53,9 +55,12 @@ pure_mode = False
 strip_mode = False
 norm_mode = False
 curated = False
-trimming = True
-modelname = "ADModel_NEO_v2.7-run2"
-logname = "NEO_V2.7-run2"
+trimming = False
+bad_data = False
+aug = True
+reg = True
+logname = "NEO_V4-testing-3class-notrim"
+modelname = "ADModel_"+logname
 if not testing_mode:
     if not pure_mode:
         print("MODELNAME:", modelname)
@@ -67,7 +72,7 @@ if testing_mode or pure_mode:
     batch_size = 4
 else:
     epochs = 25 # JUST FOR NOW
-    batch_size = 2 # Going to need to fiddle with this over time (balance time save vs. running out of memory)
+    batch_size = 1 # Going to need to fiddle with this over time (balance time save vs. running out of memory)
 
 # Define image size (lower image resolution in order to speed up for broad testing)
 if testing_mode:
@@ -81,7 +86,7 @@ h = int(208/scale) # 240 # 208
 d = int(179/scale) # 256 # 179
 
 # Prepare parameters for fetching the data
-modo = 2 # 1 for CN/MCI, 2 for CN/AD, 3 for CN/MCI/AD, 4 for weird AD-only, 5 for MCI-only
+modo = 3 # 1 for CN/MCI, 2 for CN/AD, 3 for CN/MCI/AD, 4 for weird AD-only, 5 for MCI-only
 if modo == 3 or modo == 4:
     #print("Setting for 3 classes")
     classNo = 3 # Expected value
@@ -98,6 +103,8 @@ if testing_mode:
     print("TEST MODE ENABLED.")
 elif limiter:
     print("LIMITERS ENGAGED.")
+if not reg:
+    print("NOT USING REGULARIZATION")
 if curated:
     print("USING CURATED DATA.")
 if pure_mode:
@@ -108,6 +115,8 @@ if norm_mode:
     print("USING NORMALIZED, STRIPPED IMAGES.")
 elif strip_mode:
     print("USING STRIPPED IMAGES.")
+if bad_data:
+    filename = "Directories/baddata_adni_" + str(modo)
 print("Filepath is", filename)
 if curated:
     imgname = "Directories/curated_images.txt"
@@ -116,8 +125,12 @@ elif norm_mode:
     imgname = filename+"_images_normed.txt"
     labname = filename+"_labels_normed.txt"
 elif strip_mode:
-    imgname = filename+"_images_stripped.txt"
-    labname = filename+"_labels_stripped.txt"
+    if trimming:
+        imgname = filename+"_trimmed_images_stripped.txt"
+        labname = filename+"_trimmed_labels_stripped.txt"
+    else:
+        imgname = filename+"_images_stripped.txt"
+        labname = filename+"_labels_stripped.txt"
 elif trimming:
     imgname = filename+"_trimmed_images.txt"
     labname = filename+"_trimmed_labels.txt"
@@ -134,6 +147,7 @@ path_file.close()
 label_file = open(labname, 'r')
 labels = label_file.read()
 labels = labels.split("\n")
+print(labels)
 labels = [ int(i) for i in labels]
 label_file.close()
 print("Data distribution:", Counter(labels))
@@ -192,6 +206,12 @@ if memory_mode:
     print(f"Post data aquisition (GPU) Memory used: {latest_gpu_memory - initial_memory_usage} MiB")
 
 # Data augmentation functions
+aug_rate = 0
+if aug:
+    aug_rate = 1 # Activate augmentation
+    # There has to be an easier way to say True = 1 and False = 0 without it being treated as a boolean
+else:
+    print("NO AUGMENTATION.")
 def get_augmentation(patch_size):
     return Compose([
         Rotate((-3, 3), (-3, 3), (-3, 3), p=0.6), #0.5
@@ -199,7 +219,7 @@ def get_augmentation(patch_size):
         ElasticTransform((0, 0.05), interpolation=2, p=0.3), #0.1
         #GaussianNoise(var_limit=(1, 1), p=1), #0.1
         RandomGamma(gamma_limit=(0.6, 1), p=0) #0.4
-    ], p=1) #0.9 #NOTE: Temp not doing augmentation. Want to take time to observe the effects of this stuff
+    ], p=aug_rate) #0.9 #NOTE: Temp not doing augmentation. Want to take time to observe the effects of this stuff
 aug = get_augmentation((w,h,d)) # For augmentations
 
 def load_image(file, label):
@@ -395,7 +415,28 @@ def gen_basic_model(width=208, height=240, depth=256, classes=3): # Baby mode
     inputs = keras.Input((width, height, depth, 1)) # Added extra dimension in preprocessing to accomodate that 4th dim
 
     #x = layers.Conv3D(filters=32, kernel_size=5, padding='same', activation="relu")(inputs) # Layer 1: Simple 32 node start
-    x = layers.Conv3D(filters=32, kernel_size=5, padding='same', kernel_regularizer =tf.keras.regularizers.l2( l=0.01), activation="relu")(inputs) # Layer 1: Simple 32 node start
+    #x = layers.Conv3D(filters=32, kernel_size=5, padding='same', kernel_regularizer =tf.keras.regularizers.l2( l=0.01), activation="relu")(inputs) # Layer 1: Simple 32 node start
+    x = layers.Conv3D(filters=32, kernel_size=5, padding='valid', kernel_regularizer =tf.keras.regularizers.l2( l=0.01), activation="relu")(inputs) # Layer 1: Simple 32 node star
+    x = layers.MaxPool3D(pool_size=5, strides=5)(x) # Usually max pool after the conv layer
+    
+    #x = layers.Dropout(0.5)(x) # Here or below?
+    #x = layers.GlobalAveragePooling3D()(x)
+    x = layers.Flatten()(x)
+    x = layers.Dense(units=128, activation="relu")(x) # Implement a simple dense layer with double units
+
+    outputs = layers.Dense(units=classNo, activation="softmax")(x) # Units = no of classes. Also softmax because we want that probability output
+
+    # Define the model.
+    model = keras.Model(inputs, outputs, name="3DCNN_Basic")
+
+    return model
+
+def gen_basic_noreg(width=208, height=240, depth=256, classes=3): # Baby mode
+    # Initial build version - no explicit Sequential definition
+    inputs = keras.Input((width, height, depth, 1)) # Added extra dimension in preprocessing to accomodate that 4th dim
+
+    #x = layers.Conv3D(filters=32, kernel_size=5, padding='same', activation="relu")(inputs) # Layer 1: Simple 32 node start
+    x = layers.Conv3D(filters=32, kernel_size=5, padding='valid', activation="relu")(inputs) # Layer 1: Simple 32 node start
     x = layers.MaxPool3D(pool_size=5, strides=5)(x) # Usually max pool after the conv layer
     
     #x = layers.Dropout(0.5)(x) # Here or below?
@@ -411,6 +452,9 @@ def gen_basic_model(width=208, height=240, depth=256, classes=3): # Baby mode
     return model
 
 # Build model.
+
+tic = perf_counter()
+
 if pure_mode: # TEMP
     print("USING BASIC MODEL.")
     model = gen_basic_model(width=w, height=h, depth=d, classes=classNo)
@@ -418,7 +462,10 @@ elif testing_mode:
     model = gen_basic_model(width=w, height=h, depth=d, classes=classNo)
 else:
     # Also using basic model here because pain
-    model = gen_basic_model(width=w, height=h, depth=d, classes=classNo)
+    if reg:
+        model = gen_basic_model(width=w, height=h, depth=d, classes=classNo)
+    else:
+        model = gen_basic_noreg(width=w, height=h, depth=d, classes=classNo)
 model.summary()
 optim = keras.optimizers.Adam(learning_rate=0.0001)# , epsilon=1e-3) # LR chosen based on principle but double-check this later
 #model.compile(optimizer=optim, loss='binary_crossentropy', metrics=['accuracy']) # Temp binary for only two classes
@@ -430,6 +477,7 @@ if metric == 'binary_accuracy':
     model.compile(optimizer=optim, loss='categorical_crossentropy', metrics=[tf.keras.metrics.BinaryAccuracy()]) #metrics=['accuracy']) #metrics=[tf.keras.metrics.BinaryAccuracy()]
 else:
     model.compile(optimizer=optim, loss='categorical_crossentropy', metrics=['accuracy']) #metrics=[tf.keras.metrics.BinaryAccuracy()]
+print("Metric being used:", metric)
 # ^^^^ Temp solution for the ol' "as_list() is not defined on an unknown TensorShape issue"
 # NOTE: LOOK AT THIS AGAIN WHEN DOING 3-WAY CLASS
 
@@ -494,15 +542,20 @@ elif pure_mode:
     history = model.fit(train_set, epochs=epochs, verbose=0, callbacks=[CustomCallback()])
 else:
     #history = model.fit(x_train, y_train, validation_data=(x_val, y_val), batch_size=batch_size, epochs=epochs, verbose=0, shuffle=True)
-    history = model.fit(train_set, validation_data=validation_set, epochs=epochs, callbacks=[mc, tb, es, CustomCallback()], verbose=0, shuffle=True)
-    # DEAR ME, I HAVE REMOVED THE CLASS WEIGHTING STUFF. FOR NOW.
+    history = model.fit(train_set, validation_data=validation_set, epochs=epochs, callbacks=[tb, es, CustomCallback()], verbose=0, shuffle=True)
+    # REMOVING CHECKPOINTING FOR NOW
 
 if not testing_mode:
     if not pure_mode:
         modelname = modelname +".h5"
         print("Saving model to", modelname)
-        model.save(modelname)
+        try:
+            model.save("/scratch/mssric004/Saved Models/"+modelname)
+        except Exception as e:
+            print("Couldn't save model. Reason:", e)
 print(history.history)
+
+toc = perf_counter()
 
 def make_unique(file_name, extension):
     if os.path.isfile(file_name):
@@ -531,7 +584,7 @@ if plotting:
         import matplotlib
         matplotlib.use('agg')
         import matplotlib.pyplot as plt
-        plotname = "Plots/model"
+        plotname = "Plots/Single/model"
         if testing_mode:
             plotname = plotname + "_testing"
         # Plot stuff
@@ -603,14 +656,19 @@ try:
     )
     #if not testing_mode: # NEED TO REWORK THIS
     
-    from sklearn.metrics import classification_report
+    from sklearn.metrics import classification_report, confusion_matrix, cohen_kappa_score
     print("\nGenerating classification report...")
     try:
         y_pred = model.predict(test_set_x, verbose=0)
         y_pred = np.argmax(y_pred, axis=1)
         y_test = np.argmax(y_test, axis=1)
         rep = classification_report(y_test, y_pred)
+        conf = confusion_matrix(y_test, y_pred)
+        coh = cohen_kappa_score(y_test, y_pred)
         print(rep)
+        print("\nConfusion matrix:")
+        print(conf)
+        print("Cohen Kappa Score (0 = chance, 1 = perfect):", coh)
         limit = min(30, len(y_test))
         print("\nActual test set (first ", (limit+1), "):", sep='')
         print(y_test[:limit])
@@ -628,4 +686,11 @@ if not testing_mode:
     f.write(logname + " | Mode: " + str(modo) + " | Acc: " + str(acc) + " | Loss: " + str(loss) + " | Desc: " + desc + " Time: " + datetime.datetime.now().strftime("%d/%m/%Y-%H:%M") + "\n")
     f.close()
 
-print("Done.")
+toc_total = perf_counter()
+total_seconds = (int) (toc_total-tic_total)
+train_seconds = (int) (toc-tic)
+total_time = datetime.timedelta(seconds=(total_seconds))
+train_time = datetime.timedelta(seconds=train_seconds)
+percen = (int)(train_seconds/total_seconds*100)
+
+print("Done. (Total time:", total_time, "- Training time:", train_time, ">", percen)

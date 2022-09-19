@@ -2,12 +2,13 @@
 # Richard Masson
 # Last use in 2021: October 29th
 print("\nIMPLEMENTATION: 2D Slices")
-print("CURRENT TEST: Attempting to train on every slice.")
+print("CURRENT TEST: I don't think this was testing properly before. Trying again on basic.")
 #print("CURRENT TEST: First official test on everything.")
 # TO DO: Model2
 import os
 from pyexpat import model
-import subprocess as sp # Memory shit
+import subprocess as sp
+from time import perf_counter # Memory shit
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2' 
 import sys
 import nibabel as nib
@@ -35,6 +36,8 @@ import matplotlib.pyplot as plt
 print("Imports working.")
 # Attempt to better allocate memory.
 
+tic_total = perf_counter()
+
 config = tf.compat.v1.ConfigProto()
 config.gpu_options.allow_growth=True
 sess = tf.compat.v1.Session(config=config)
@@ -50,9 +53,9 @@ memory_mode = False
 strip_mode = False
 norm_mode = False
 trimming = True
-maxxing = False
-modelname = "ADModel_2DSlice_V1.4-entire"
-logname = "2DSlice_V1.4-entire"
+maxxing = True # True = use prio slices
+modelname = "ADModel_2DSlice_V2-prio"
+logname = "2DSlice_V2-prio"
 if not testing_mode:
     print("MODELNAME:", modelname)
     print("LOGS CAN BE FOUND UNDER", logname)
@@ -62,7 +65,7 @@ if testing_mode:
     epochs = 1 #Small for testing purposes
     batches = 1
 else:
-    epochs = 15 # JUST FOR NOW
+    epochs = 25 # JUST FOR NOW
     batches = 1 # Going to need to fiddle with this over time (balance time save vs. running out of memory)
 
 # Set which slices to use, based on previous findings
@@ -254,7 +257,7 @@ def gen_basic_model(width, height, channels, classes=3): # Baby mode
     # Initial build version - no explicit Sequential definition
     inputs = keras.Input((width, height, channels))
 
-    x = layers.Conv2D(filters=32, kernel_size=3, padding='valid', activation="relu", kernel_regularizer =tf.keras.regularizers.l2( l=0.01), data_format="channels_last")(inputs) # Layer 1: Simple 32 node start
+    x = layers.Conv2D(filters=32, kernel_size=5, padding='valid', activation="relu", kernel_regularizer =tf.keras.regularizers.l2( l=0.01), data_format="channels_last")(inputs) # Layer 1: Simple 32 node start
     x = layers.MaxPool2D(pool_size=5, strides=5)(x) # Usually max pool after the conv layer
 
     x = layers.Flatten()(x)
@@ -389,10 +392,15 @@ if testing_mode:
     startpoint = 95
     endpoint = 100
 
+tic = perf_counter()
+
 if maxxing:
     model_list, weights = generatePriorityModels(priority_slices)
 else:
     model_list, weights = generateModels(startpoint, endpoint)
+
+toc = perf_counter()
+
 #print("Validation accuracies:")
 wcount = []
 wcount = startpoint
@@ -425,7 +433,7 @@ test_x = tf.data.Dataset.from_tensor_slices((x_test))
 print("Test data prepared.")
 
 test_set = (
-    val.map(load_slice_wrapper)
+    test.map(load_slice_wrapper)
     .batch(batch_size)
     #.map(fix_shape)
     .prefetch(batch_size)
@@ -445,21 +453,38 @@ except Exception as e:
 preds=[]
 predi=[]
 evals=[]
-n = startpoint
-print("Evaluating...")
-for j in range(len(model_list)):
-    scores = model_list[j][1].evaluate(test_set, verbose=0)
-    acc = scores[1]*100
-    loss = scores[0]
-    evals.append(acc)
-    try:
-        pred = model_list[j][1].predict(test_set_x)
-        preds.append(pred)
-        predi.append(np.argmax(pred, axis=1))
-    except:
-        preds.append[[-1,-1]]
-        predi.append(-1)
-    n += 1
+if not maxxing:
+    n = startpoint
+    print("Evaluating...")
+    for j in range(len(model_list)):
+        scores = model_list[j][1].evaluate(test_set, verbose=0)
+        acc = scores[1]*100
+        loss = scores[0]
+        evals.append(acc)
+        try:
+            pred = model_list[j][1].predict(test_set_x)
+            preds.append(pred)
+            predi.append(np.argmax(pred, axis=1))
+        except:
+            preds.append[[-1,-1]]
+            predi.append(-1)
+        n += 1
+else:
+    print("Evaluating...")
+    for j in range(len(model_list)):
+        n = priority_slices[j]
+        print(model_list[j][0], "gets tested using slice", n)
+        scores = model_list[j][1].evaluate(test_set, verbose=0)
+        acc = scores[1]*100
+        loss = scores[0]
+        evals.append(acc)
+        try:
+            pred = model_list[j][1].predict(test_set_x)
+            preds.append(pred)
+            predi.append(np.argmax(pred, axis=1))
+        except:
+            preds.append[[-1,-1]]
+            predi.append(-1)
 
 from sklearn.metrics import accuracy_score
 from statistics import mode
@@ -490,4 +515,18 @@ for k in range(len(model_list)):
 print(f"\nAccuracy of Soft Voting: {accuracy_score(Y_test, sv_predictions)}")
 print(f"Accuracy of Hard Voting: {accuracy_score(Y_test, hv_predictions)}")
 
-print("All done!")
+# Save models
+print("Attempting to save this big list of models.")
+if not os.path.isdir(logname):
+    os.mkdir(logname)
+for model in model_list:
+    model[1].save(logname+"/"+model[0]+".h5")
+
+toc_total = perf_counter()
+total_seconds = (int) (toc_total-tic_total)
+train_seconds = (int) (toc-tic)
+total_time = datetime.timedelta(seconds=(total_seconds))
+train_time = datetime.timedelta(seconds=train_seconds)
+percen = (int)(train_seconds/total_seconds*100)
+
+print("Done. (Total time:", total_time, "- Training time:", train_time, ">", percen)

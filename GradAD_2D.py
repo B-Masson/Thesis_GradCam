@@ -22,7 +22,7 @@ print("Imports working.")
 
 # Flags
 display_mode = True # Print out all the weight info
-single = False
+single = True
 memory_mode = False # Print out memory summaries
 strip_mode = False
 
@@ -32,10 +32,13 @@ if memory_mode:
     torch.backends.cudnn.enabled = True
     GPUtil.showUtilization()
 
-#model_name = "ADModel_TWIN_v1.5_strip.h5"
-model_name = "ADModel_2D_V1.h5"
+priority_slices = [56, 57, 58, 64, 75, 85, 88, 89, 96]
+# Just pick a single model for now
+modelnum = 58
+model_name = "Models/2DSlice_V2-prio/model-"+str(modelnum)+".h5"
 model = load_model(model_name)
 print("Keras model loaded in.")
+
 #GPUtil.showUtilization()
 weights=model.get_weights()
 #print("No. of weights elements =", len(weights))
@@ -65,7 +68,7 @@ class TorchBrain(nn.Module):
         self.conv = nn.Conv3d(1, 32, 3, padding='valid')
         self.relu = nn.LeakyReLU()
         # Step 2: 10x10, stride 10 max pooling
-        self.pool = nn.MaxPool3d(10, stride=10)
+        self.pool = nn.MaxPool3d(10, stride=10, padding='valid')
 
         # Step 3: Flatten and dense layer
         self.flatten = nn.Flatten()
@@ -100,14 +103,14 @@ class TorchBrain2D(nn.Module): # For more complex model
         super(TorchBrain2D, self).__init__()
         # Input size is 208, 240, 256, 1
         # Step 1: Conv3D, 32 filters, 3x kernel, relu (3, 3, 3, 1, 32)
-        self.conv = nn.Conv2d(256, 32, 3, padding='valid')
+        self.conv = nn.Conv2d(1, 32, 3, padding='valid')
         self.relu = nn.LeakyReLU()
         # Step 2: 10x10, stride 10 max pooling
-        self.pool = nn.MaxPool2d(10, stride=10)
+        self.pool = nn.MaxPool2d(5, stride=5)
 
         # Step 3: Flatten and dense layer
         self.flatten = nn.Flatten()
-        self.dense1 = nn.Linear(14720, 128) #???
+        self.dense1 = nn.Linear(42240, 128) #???
 
         # Step 5: Final Dense layer, softmax
         self.dense2 = nn.Linear(128, class_no)
@@ -115,21 +118,21 @@ class TorchBrain2D(nn.Module): # For more complex model
         
     def forward(self, x):
         print("Forward pass...")
-        #print("Input shape:", x.shape)
+        print("Input shape:", x.shape)
         out = self.conv(x)
-        #print("After Conv (1):", out.shape)
+        print("After Conv (1):", out.shape)
         out = self.relu(out)
-        #print("After Relu:", out.shape)
+        print("After Relu:", out.shape)
         out = self.pool(out)
-        #print("After Pooling (1):", out.shape)
+        print("After Pooling (1):", out.shape)
         out = self.flatten(out)
-        #print("After flattening:", out.shape)
+        print("After flattening:", out.shape)
         out = self.dense1(out)
-        #print("After Dense (1):", out.shape)
+        print("After Dense (1):", out.shape)
         out = self.dense2(out)
-        #print("After Dense (2):")
+        print("After Dense (2):", out.shape)
         out = self.softmax(out)
-        #print("After Softmax:", out.shape)
+        print("After Softmax:", out.shape)
         
         return out
 
@@ -138,6 +141,7 @@ torchy = TorchBrain2D()
 print("Torch model loaded in.")
 if display_mode:
     print("\n", torchy, "\n", sep='')
+    print("KERAS SUMMARY:")
     model.summary()
 
 # Print out all the weight shapes so we can get the transposition right
@@ -172,9 +176,9 @@ keras.backend.clear_session()
 # Grab that data now
 print("\nExtracting data")
 scale = 1
-w = (int)(208/scale)
-h = (int)(240/scale)
-d = (int)(256/scale)
+w = (int)(169/scale)
+h = (int)(208/scale)
+d = (int)(179/scale)
 
 if single:
     imgname = "Directories\\test_tiny_adni_1_images.txt"
@@ -249,19 +253,42 @@ print("Done. Attempting injection...")
 cam_model = medcam.inject(torchy, output_dir='Grad-Maps-2D', backend='gcampp', layer='relu', label='best', save_maps=True) # Removed label = 'best'
 print("Injection successful.")
 
+sing = np.asarray(nib.load(path[0]).get_fdata(dtype='float32'))
+image = ne.organiseADNI(sing, w, h, d, strip=strip_mode)
+image = image[:,:,modelnum]
+
+from PIL import Image
+im = Image.fromarray(image)
+im.save("Grad-Maps-2D/reference.png")
+
+image = np.expand_dims(image, axis=0)
+print("Input shape is:", image.shape)
+x = torch.Tensor(image)
+x = x.to(device=device)
+print("Permuting...")
+x = torch.permute(x, (0, 3, 1, 2))
+print("Shape after permutation:", x.shape)
+pred = cam_model(x)
+pred_read = pred.detach().cpu().numpy()
+print("Prediction:", pred_read, "(actual:", labels[0], ")")
+
+'''
 for i in range (len(path)):
     # Incredibly dirty way of preparing this data
     image = np.asarray(nib.load(path[i]).get_fdata(dtype='float32'))
     image = ne.organiseADNI(image, w, h, d, strip=strip_mode)
+    image = image[:,:,modelnum]
     #image = np.expand_dims(image, axis=0)
     x = torch.Tensor(image)
     x = x.to(device=device)
-    #print("Shape before:", x.shape)
-    x = torch.permute(x, (3, 2, 0, 1))
-    #print("Shape:", x.shape)
+    print("Shape before:", x.shape)
+    #x = torch.permute(x, (3, 2, 0, 1))
+    x = torch.permute(x, (2, 0, 1))
+    print("Shape:", x.shape)
     pred = cam_model(x)
     pred_read = pred.detach().cpu().numpy()
     print("Prediction #", i+1, ": ", pred_read[0], " | Actual: ", labels[i], sep='')
+'''
 
 #print("Image shape:", x.shape)
 #print("Image shape:", x.shape)

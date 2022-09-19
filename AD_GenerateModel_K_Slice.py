@@ -2,8 +2,8 @@
 # Richard Masson
 # Info: Trying to fix the model since I'm convinced it's scuffed.
 # Last use in 2021: October 29th
-print("\nIMPLEMENTATION: K-Fold")
-desc = "Mode 2, standard otherwise."
+print("\nIMPLEMENTATION: K-Fold 2D Slices")
+desc = "First run of kfold slices. Basic model."
 print(desc)
 import os
 import subprocess as sp
@@ -30,6 +30,8 @@ import datetime
 from collections import Counter
 from volumentations import * # OI, WE NEED TO CITE VOLUMENTATIONS NOW
 from sklearn.model_selection import KFold, StratifiedKFold
+from sklearn.metrics import accuracy_score
+from statistics import mode, mean
 print("Imports working.")
 
 # Attempt to better allocate memory.
@@ -54,7 +56,8 @@ norm_mode = False
 curated = False
 trimming = True
 bad_data = False
-logname = "K_v4-mode2"
+#modelname = "ADModel_2DK_v1-bad-data" #Next in line: ADMODEL_NEO_v1.3
+logname = "SliceK_V2-prio" #Neo_V1.3
 modelname = "ADModel_"+logname
 if not testing_mode:
     print("MODELNAME:", modelname)
@@ -66,7 +69,10 @@ if testing_mode:
     batch_size = 1
 else:
     epochs = 25 # JUST FOR NOW
-    batch_size = 2 # Going to need to fiddle with this over time (balance time save vs. running out of memory)
+    batch_size = 1 # Going to need to fiddle with this over time (balance time save vs. running out of memory)
+
+# Set which slices to use, based on previous findings
+priority_slices = [56, 57, 58, 64, 75, 85, 88, 89, 96]
 
 # Define image size (lower image resolution in order to speed up for broad testing)
 if testing_mode:
@@ -115,12 +121,8 @@ elif norm_mode:
     imgname = filename+"_images_normed.txt"
     labname = filename+"_labels_normed.txt"
 elif strip_mode:
-    if trimming:
-        imgname = filename+"_trimmed_images_stripped.txt"
-        labname = filename+"_trimmed_labels_stripped.txt"
-    else:
-        imgname = filename+"_images_stripped.txt"
-        labname = filename+"_labels_stripped.txt"
+    imgname = filename+"_images_stripped.txt"
+    labname = filename+"_labels_stripped.txt"
 elif trimming:
     imgname = filename+"_trimmed_images.txt"
     labname = filename+"_trimmed_labels.txt"
@@ -170,9 +172,9 @@ print("Number of testing images:", len(x_test), "\n")
 # Data augmentation functions
 def get_augmentation(patch_size):
     return Compose([
-        Rotate((-3, 3), (-3, 3), (-3, 3), p=0.5), #0.5
+        Rotate((-3, 3), (-3, 3), (-3, 3), p=0.6), #0.5
         #Flip(2, p=1)
-        ElasticTransform((0, 0.05), interpolation=2, p=0), #0.1
+        ElasticTransform((0, 0.05), interpolation=2, p=0.3), #0.1
         #GaussianNoise(var_limit=(1, 1), p=1), #0.1
         RandomGamma(gamma_limit=(0.6, 1), p=0) #0.4
     ], p=1) #0.9 #NOTE: Temp not doing augmentation. Want to take time to observe the effects of this stuff
@@ -185,29 +187,10 @@ def load_image(file, label):
         nifti = ne.resizeADNI(nifti, w, h, d, stripped=True)
     else:
         nifti = ne.organiseADNI(nifti, w, h, d, strip=strip_mode)
-
-    # Augmentation
     data = {'image': nifti}
     aug_data = aug(**data)
     nifti = aug_data['image']
-
     nifti = tf.convert_to_tensor(nifti, np.float32)
-
-    if nifti.shape == (5,23,8,1):
-        print("Why the hell is the shape", nifti.shape, "??")
-        print("File in question:", loc)
-        sys.exit()
-    return nifti, label
-
-def load_val(file, label): # NO AUG
-    loc = file.numpy().decode('utf-8')
-    nifti = np.asarray(nib.load(loc).get_fdata())
-    if norm_mode:
-        nifti = ne.resizeADNI(nifti, w, h, d, stripped=True)
-    else:
-        nifti = ne.organiseADNI(nifti, w, h, d, strip=strip_mode)
-    nifti = tf.convert_to_tensor(nifti, np.float32)
-
     return nifti, label
 
 def load_test(file): # NO AUG, NO LABEL
@@ -220,25 +203,49 @@ def load_test(file): # NO AUG, NO LABEL
     nifti = tf.convert_to_tensor(nifti, np.float32)
     return nifti
 
+def load_slice(file, label):
+    loc = file.numpy().decode('utf-8')
+    nifti = np.asarray(nib.load(loc).get_fdata())
+    #print("using slice", n)
+    slice = nifti[:,:,n]
+    slice = ne.organiseSlice(slice, w, h, strip=strip_mode)
+    # Augmentation
+    # TO DO
+    slice = tf.convert_to_tensor(slice, np.float32)
+    return slice, label
+
+def load_testslice(file):
+    loc = file.numpy().decode('utf-8')
+    nifti = np.asarray(nib.load(loc).get_fdata())
+    #print("using slice", n)
+    slice = nifti[:,:,n]
+    slice = ne.organiseSlice(slice, w, h, strip=strip_mode)
+    # Augmentation
+    # TO DO
+    slice = tf.convert_to_tensor(slice, np.float32)
+    return slice
+
 def load_image_wrapper(file, labels):
     return tf.py_function(load_image, [file, labels], [np.float32, np.float32])
-
-def load_val_wrapper(file, labels):
-    return tf.py_function(load_val, [file, labels], [np.float32, np.float32])
 
 def load_test_wrapper(file):
     return tf.py_function(load_test, [file], [np.float32])
 
+def load_slice_wrapper(file, labels):
+    return tf.py_function(load_slice, [file, labels], [np.float32, np.float32])
+
+def load_testslice_wrapper(file):
+    return tf.py_function(load_testslice, [file], [np.float32])
+
 # This needs to exist in order to allow for us to use an accuracy metric without getting weird errors
 def fix_shape(images, labels):
-    #print("Going in:", images.shape, "|", labels.shape)
-    images.set_shape([None, w, h, d, 1])
-    labels.set_shape([images.shape[0], classNo])
-    #print("Going out:", images.shape, "|", labels.shape)
+    images.set_shape([None, w, h, 1])
+    labels.set_shape([1, classNo])
     return images, labels
 
-def fix_wrapper(file, labels):
-    return tf.py_function(fix_shape, [file, labels], [np.float32, np.float32])
+def fix_dims(image):
+    image.set_shape([None, w, h, d, 1])
+    return image
 
 print("Quickly preparing test data...")
 
@@ -247,15 +254,17 @@ test = tf.data.Dataset.from_tensor_slices((x_test, y_test))
 test_x = tf.data.Dataset.from_tensor_slices((x_test))
 
 test_set_x = (
-    test_x.map(load_test_wrapper)
-    .batch(batch_size)
-    .prefetch(batch_size)
+        test_x.map(load_testslice_wrapper)
+        .batch(batch_size)
+        #.map(fix_dims)
+        .prefetch(batch_size)
 )
 test_set = (
-    test.map(load_val_wrapper)
+    test.map(load_slice_wrapper)
     .batch(batch_size)
+    #.map(fix_shape)
     .prefetch(batch_size)
-) # Later we may need to use a different wrapper function? Not sure.
+)
 
 print("Test data prepared.")
 
@@ -311,7 +320,6 @@ def gen_model(width=208, height=240, depth=256, classes=3): # Make sure defaults
     return model
 
 def gen_model_2(width=208, height=240, depth=256, classes=3): # Make sure defaults are equal to image resizing defaults
-    print("USING ADVANCED MODEL")
     # Initial build version - no explicit Sequential definition
     inputs = keras.Input((width, height, depth, 1)) # Added extra dimension in preprocessing to accomodate that 4th dim
 
@@ -360,14 +368,13 @@ def gen_model_2(width=208, height=240, depth=256, classes=3): # Make sure defaul
 
     return model
 
-def gen_basic_model(width=208, height=240, depth=256, classes=3): # Baby mode
-    print("USING BASIC MODEL")
+def gen_basic_2Dmodel(width=208, height=240, depth=256, classes=3): # Baby mode
     # Initial build version - no explicit Sequential definition
-    inputs = keras.Input((width, height, depth, 1)) # Added extra dimension in preprocessing to accomodate that 4th dim
+    inputs = keras.Input((width, height, depth)) # Added extra dimension in preprocessing to accomodate that 4th dim
 
     #x = layers.Conv3D(filters=32, kernel_size=5, padding='same', activation="relu")(inputs) # Layer 1: Simple 32 node start
-    x = layers.Conv3D(filters=32, kernel_size=5, padding='valid', kernel_regularizer =tf.keras.regularizers.l2( l=0.01), activation="relu")(inputs) # Layer 1: Simple 32 node start
-    x = layers.MaxPool3D(pool_size=5, strides=5)(x) # Usually max pool after the conv layer
+    x = layers.SeparableConv2D(filters=32, kernel_size=5, padding='valid', kernel_regularizer =tf.keras.regularizers.l2( l=0.01), activation="relu", data_format="channels_last")(inputs) # Layer 1: Simple 32 node start
+    x = layers.MaxPool2D(pool_size=5, strides=5)(x) # Usually max pool after the conv layer
     
     #x = layers.Dropout(0.5)(x) # Here or below?
     #x = layers.GlobalAveragePooling3D()(x)
@@ -377,45 +384,24 @@ def gen_basic_model(width=208, height=240, depth=256, classes=3): # Baby mode
     outputs = layers.Dense(units=classNo, activation="softmax")(x) # Units = no of classes. Also softmax because we want that probability output
 
     # Define the model.
-    model = keras.Model(inputs, outputs, name="3DCNN_Basic")
-
-    return model
-
-def gen_basic_noreg_model(width=208, height=240, depth=256, classes=3): # Baby mode
-    print("USING BASIC MODEL (NO REG)")
-    # Initial build version - no explicit Sequential definition
-    inputs = keras.Input((width, height, depth, 1)) # Added extra dimension in preprocessing to accomodate that 4th dim
-
-    #x = layers.Conv3D(filters=32, kernel_size=5, padding='same', activation="relu")(inputs) # Layer 1: Simple 32 node start
-    x = layers.Conv3D(filters=32, kernel_size=5, padding='same', activation="relu")(inputs) # Layer 1: Simple 32 node start
-    x = layers.MaxPool3D(pool_size=5, strides=5)(x) # Usually max pool after the conv layer
-    
-    #x = layers.Dropout(0.5)(x) # Here or below?
-    #x = layers.GlobalAveragePooling3D()(x)
-    x = layers.Flatten()(x)
-    x = layers.Dense(units=128, activation="relu")(x) # Implement a simple dense layer with double units
-
-    outputs = layers.Dense(units=classNo, activation="softmax")(x) # Units = no of classes. Also softmax because we want that probability output
-
-    # Define the model.
-    model = keras.Model(inputs, outputs, name="3DCNN_Basic_NoReg")
+    model = keras.Model(inputs, outputs, name="2DCNN_Basic")
 
     return model
 
 # Checkpointing & Early Stopping
 mon = 'val_loss'
 es = EarlyStopping(monitor=mon, patience=10, restore_best_weights=True) # Temp at 30 to circumvent issue with first epoch behaving weirdly
-checkpointname = "k_fold_checkpoints.h5"
+checkpointname = "2Dk_fold_checkpoints.h5"
 if testing_mode:
     checkpointname = "k_fold_checkpoints_testing.h5"
 mc = ModelCheckpoint(checkpointname, monitor=mon, mode='auto', verbose=2, save_best_only=True) #Maybe change to true so we can more easily access the "best" epoch
 if testing_mode:
-    log_dir = "/scratch/mssric004/test_logs/fit/k_fold/" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+    log_dir = "/scratch/mssric004/test_logs/fit/2Dk_fold/" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
 else:
     if logname != "na":
-        log_dir = "/scratch/mssric004/logs/fit/k_fold/" + logname + "_" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+        log_dir = "/scratch/mssric004/logs/fit/2Dk_fold/" + logname + "_" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
     else:
-        log_dir = "/scratch/mssric004/logs/fit/k_fold/" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+        log_dir = "/scratch/mssric004/logs/fit/2Dk_fold/" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
 tb = TensorBoard(log_dir=log_dir, histogram_freq=1)
 
 # Custom callbacks (aka make keras actually report stuff during training)
@@ -436,26 +422,61 @@ class_weight_dict = dict()
 for index,value in enumerate(class_weights):
     class_weight_dict[index] = value
 #class_weight_dict = {i:w for i,w in enumerate(class_weights)}
-print("Class weight distribution will be:", class_weight_dict)
+print("Class weight dsitribution will be:", class_weight_dict)
 
-# Build model. (Have to do all this here to try fix OOM issue)
+# Slice generation stuff
+optim = keras.optimizers.Adam(learning_rate=0.001)# , epsilon=1e-3) # LR chosen based on principle but double-check this later
+channels = 1 # Replicating into 3 channels is proving annoying
+
+def generatePriorityModels(slices, metric):
+    models = []
+    weights = []
+    for i in range(len(slices)):
+        global n
+        n = slices[i]
+        print("Fitting for slice", n, ".")
+        display = [str(x) for x in slices]
+        display.insert(i, "->")
+        print(display)
+        # Set up a model
+        model = gen_basic_2Dmodel(w, h, channels, classes=classNo)
+        model.compile(optimizer=optim, loss='categorical_crossentropy', metrics=['accuracy']) #metrics=[tf.keras.metrics.BinaryAccuracy()]
+        
+        # Checkpointing & Early Stopping
+        es = EarlyStopping(monitor='val_loss', patience=5, restore_best_weights=True) # Temp at 30 to circumvent issue with first epoch behaving weirdly
+        checkpointname = "/2d_V1_checkpoints/slice" +str(n) +".h5"
+        if testing_mode:
+            checkpointname = "2d_V1_checkpoints_testing.h5"
+        mc = ModelCheckpoint(checkpointname, monitor='val_loss', mode='min', verbose=1, save_best_only=True) #Maybe change to true so we can more easily access the "best" epoch
+        if testing_mode:
+            log_dir = "/scratch/mssric004/test_logs/fit/2dslice/" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+        else:
+            log_dir = "/scratch/mssric004/logs/fit/2dsliceNEO/" + logname + "/slice" +str(n) +"_" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+        tb = TensorBoard(log_dir=log_dir, histogram_freq=1)
+        
+        models.append(model)
+        weight = model.get_weights()
+        weights.append(weight)
+    return models, weights
+
+# Build model list
 if batch_size > 1:
     metric = 'binary_accuracy'
 else:
     metric = 'accuracy'
-def initial_model(w, h, d, classNo, metric):
-    model = gen_basic_model(width=w, height=h, depth=d, classes=classNo)
-    optim = keras.optimizers.Adam(learning_rate=0.0001)# , epsilon=1e-3) # LR chosen based on principle but double-check this later
-    if metric == 'binary_accuracy':
-        model.compile(optimizer=optim, loss='categorical_crossentropy', metrics=[tf.keras.metrics.BinaryAccuracy()]) #metrics=['accuracy']) #metrics=[tf.keras.metrics.BinaryAccuracy()]
-    else:
-        model.compile(optimizer=optim, loss='categorical_crossentropy', metrics=['accuracy']) #metrics=[tf.keras.metrics.BinaryAccuracy()]
-    return model, model.get_weights()
-
-model, initials = initial_model(w, h, d, classNo, metric)
+model_list, initials = generatePriorityModels(priority_slices, metric)
 
 def reset_weights(reused_model, init_weights):
     reused_model.set_weights(init_weights)
+
+# Define voting
+def soft_voting(predicted_probas : list, weights : list) -> np.array:
+
+    #sv_predicted_proba = np.mean(predicted_probas, axis=0)
+    sv_predicted_proba = np.average(predicted_probas, axis=0, weights=weights)
+    sv_predicted_proba[:,-1] = 1 - np.sum(sv_predicted_proba[:,:-1], axis=1)    
+
+    return sv_predicted_proba, sv_predicted_proba.argmax(axis=1)
 
 # K-Fold setup
 n_folds = 5
@@ -466,7 +487,6 @@ loss_per_fold = []
 rar = 0
 skf = StratifiedKFold(n_splits=n_folds, random_state=rar, shuffle=True)
 mis_classes = []
-suc_classes = []
 
 print("\nStarting cross-fold validation process...")
 print("Params:", epochs, "epochs &", batch_size, "batches.")
@@ -495,7 +515,7 @@ for train_index, val_index in skf.split(x, y):
 
     train_set = (
         train.shuffle(len(train))
-        .map(load_image_wrapper)
+        .map(load_slice_wrapper)
         .batch(batch_size)
         .map(fix_shape)
         .prefetch(batch_size)
@@ -504,33 +524,49 @@ for train_index, val_index in skf.split(x, y):
     # Only rescale.
     validation_set = (
         val.shuffle(len(x_val))
-        .map(load_val_wrapper)
+        .map(load_slice_wrapper)
         .batch(batch_size)
         .map(fix_shape)
         .prefetch(batch_size)
     )
 
     # Run the model
-    if fold == 1:
-        model.summary()
+    #if fold == 1:
+    #    model.summary()
 
     # Reset the weights
     print("Resetting weights...")
-    reset_weights(model, initials)
+    for i in range(len(model_list)):
+        reset_weights(model_list[i], initials[i])
 
     print("Fitting model...")
-    if testing_mode:
-    #history = model.fit(x_train, y_train, validation_data=(x_val, y_val), batch_size=batches, epochs=epochs, verbose=0)
-        history = model.fit(train_set, validation_data=validation_set, epochs=epochs, verbose=0, callbacks=[CustomCallback()]) # DON'T SPECIFY BATCH SIZE, CAUSE INPUT IS ALREADY A BATCHED DATASET
-    else:
-    #history = model.fit(x_train, y_train, validation_data=(x_val, y_val), batch_size=batches, epochs=epochs, verbose=0, shuffle=True)
-        history = model.fit(train_set, validation_data=validation_set, epochs=epochs, callbacks=[tb, es], verbose=0, shuffle=True)
-        # Not saving checkpoints FOR NOW
+    voting_weights = []
+    names = []
+    slices = priority_slices
+    for i in range(len(slices)):
+        global n
+        n = slices[i]
+        print("Fitting for slice", n, ".")
+        display = [str(x) for x in slices]
+        display.insert(i, "->")
+        print(display)
+        if testing_mode:
+        #history = model.fit(x_train, y_train, validation_data=(x_val, y_val), batch_size=batches, epochs=epochs, verbose=0)
+            history = model_list[i].fit(train_set, validation_data=validation_set, epochs=epochs, verbose=0, callbacks=[CustomCallback()]) # DON'T SPECIFY BATCH SIZE, CAUSE INPUT IS ALREADY A BATCHED DATASET
+        else:
+        #history = model.fit(x_train, y_train, validation_data=(x_val, y_val), batch_size=batches, epochs=epochs, verbose=0, shuffle=True)
+            history = model_list[i].fit(train_set, validation_data=validation_set, epochs=epochs, callbacks=[tb, es], verbose=0, shuffle=True)
+            # Not saving checkpoints FOR NOW
+        print(history.history)
+        val_weight = history.history['val_accuracy'][-1]
+        names.append("model"+str(n))
+        voting_weights.append(val_weight)
+
     print("RESULTS FOR FOLD", fold, ":")
-    print(history.history)
-    best_epoch = np.argmin(history.history['val_loss']) + 1
+    #print(history.history)
+    #best_epoch = np.argmin(history.history['val_loss']) + 1
     #print("Epoch with lowest validation loss: Epoch", best_epoch, ": Val_Loss[", history.history['loss'][best_epoch-1], "] Val_Acc[", history.history['val_accuracy'][best_epoch-1], "]")
-    
+    '''
     # Readings
     try:
         print("\nAccuracy max:", round(max(history.history[metric])*100,2), "% (epoch", history.history[metric].index(max(history.history[metric])), ")")
@@ -559,7 +595,8 @@ for train_index, val_index in skf.split(x, y):
                     return path+"/run"+str(expand-1)+"/"
                 break
         return folder
-
+    '''
+    '''
     plotting = True
     if plotting:
         try:
@@ -567,7 +604,7 @@ for train_index, val_index in skf.split(x, y):
             import matplotlib
             matplotlib.use('agg')
             import matplotlib.pyplot as plt
-            plotpath = "Plots/Kfold/"
+            plotpath = "Plots/Kfold-2D/"
             path = make_unique(plotpath, fold)
             if testing_mode:
                 plotname = "testing_fold"
@@ -597,51 +634,52 @@ for train_index, val_index in skf.split(x, y):
             print("Saved plot, btw.")
         except Exception as e:
             print("Plotting didn't work out. Error:", e)
-    
+    '''
     # Final evaluation
-    print("\nEvaluating using test data...")
-    scores = model.evaluate(test_set, verbose=0) # Should not need to specify batch size, because of set
-    acc = scores[1]*100
-    loss = scores[0]
-    print("Fold", fold, "evaluated scores - Acc:", acc, "Loss:", loss)
+    preds=[]
+    predi=[]
+    evals=[]
+    model_loss=[]
+    print("Evaluating...")
+    for j in range(len(model_list)):
+        n = priority_slices[j]
+        scores = model_list[j].evaluate(test_set, verbose=0)
+        acc = scores[1]*100
+        loss = scores[0]
+        model_loss.append(loss)
+        evals.append(acc)
+        #try:
+        print("Predicting on model in rank", j, ":")
+        #print(model_list[j].summary())
+        #print("Example shape of what we are using to predict:", next(iter(test_set_x)).shape)
+        pred = model_list[j].predict(test_set_x)
+        preds.append(pred)
+        predi.append(np.argmax(pred, axis=1))
+        #except:
+        #    preds.append[[-1,-1]]
+        #    predi.append(-1)
+    sv_predicted_proba, sv_predictions = soft_voting(preds, voting_weights)
+    Y_test=np.argmax(y_test, axis=1)
+    for k in range(len(model_list)):
+        print(f"Accuracy of {names[k]}: {accuracy_score(Y_test, predi[k])}")
+    acc = accuracy_score(Y_test, sv_predictions)*100
+    print("Fold", fold, "evaluated scores - Soft Voting Acc:", acc, "Loss:", loss)
     acc_per_fold.append(acc)
-    loss_per_fold.append(loss)
-
-    # Classification report
-    from sklearn.metrics import classification_report
-
-    print("\nGenerating classification report...")
-    y_pred = model.predict(test_set_x, verbose=0)
-    y_pred = np.argmax(y_pred, axis=1)
-    y_test_arged = np.argmax(y_test, axis=1)
-    rep = classification_report(y_test_arged, y_pred)
-    print(rep)
-    limit = min(30, len(y_test_arged))
-    print("\nActual test set (first ", (limit+1), "):", sep='')
-    print(y_test_arged[:limit])
-    print("Predictions are  as follows (first ", (limit+1), "):", sep='')
-    print(y_pred[:limit])
-
-    # Add to the list of images bringing up issues
-    try:
-        for i in range(0, len(y_pred)):
-            if y_pred[i] != y_test_arged[i]:
-                mis_classes.append(x_test[i])
-            else:
-                suc_classes.append(x_test[i])
-    except Exception as e:
-        print("Error while checking incorrect predictions.", e)
-
+    loss_per_fold.append(mean(model_loss))
+    #loss_per_fold.append(loss)
     print("Average so far:" , np.mean(acc_per_fold), "+-", np.std(acc_per_fold))
 
 # Save outside the loop my sire
+'''
 if testing_mode:
     modelname = "ADModel_K_Testing"
 modelname = modelname +".h5"
-model.save("/scratch/mssric004/Saved Models/"+modelname)
-print("Saved the model to scratch models:", modelname)
+'''
+#model.save(modelname)
 # Electing not to save for now since the file it generates is HUGE
-
+loc = "Means/" + logname
+print("Saving means to:", loc)
+np.savez(loc, acc_per_fold, loss_per_fold)
 
 # Average scores
 print("------------------------------------------------------------------------")
@@ -656,23 +694,17 @@ print("Loss:",  np.mean(loss_per_fold), "+-", np.std(loss_per_fold))
 print("------------------------------------------------------------------------")
 
 # Save stuff so I can make a box and whisker plot later
-loc = "Means/" + logname
-print("Saving means to:", loc)
-np.savez(loc, acc_per_fold, loss_per_fold)
+if not testing_mode:
+    loc = "Means/" + logname
+    np.savez(loc, acc_per_fold, loss_per_fold)
 
+'''
 # Check those tricky images
 mis_d = Counter(mis_classes)
-howmany = 3
+howmany = 5
 print("\nMismatched test images (top ", howmany, "):", sep='')
 common = mis_d.most_common()
 for j in range(0, howmany-1):
     print(common[j])
-
-# Best performing images
-suc_d = Counter(suc_classes)
-print("\nBest performing images (top ", howmany, ":", sep='')
-least = mis_d.most_common()
-for k in range(0, howmany-1):
-    print(least[-k])
-
+'''
 print("Done.")

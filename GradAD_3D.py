@@ -22,9 +22,10 @@ print("Imports working.")
 
 # Flags
 display_mode = True # Print out all the weight info
-single = False
+single = True
 memory_mode = False # Print out memory summaries
 strip_mode = False
+old_mode = True
 
 # Memory setup
 if memory_mode:
@@ -32,8 +33,8 @@ if memory_mode:
     torch.backends.cudnn.enabled = True
     GPUtil.showUtilization()
 
-#model_name = "ADModel_TWIN_v1.5_strip.h5"
-model_name = "ADModel_2D_V1.h5"
+model_name = "ADModel_TWIN_v1.5_strip.h5"
+#model_name = "Models/ADModel_NEO_v2.7.h5"
 model = load_model(model_name)
 print("Keras model loaded in.")
 #GPUtil.showUtilization()
@@ -62,6 +63,44 @@ class TorchBrain(nn.Module):
         super(TorchBrain, self).__init__()
         # Input size is 208, 240, 256, 1
         # Step 1: Conv3D, 32 filters, 3x kernel, relu (3, 3, 3, 1, 32)
+        self.conv = nn.Conv3d(1, 32, 5, padding='valid')
+        self.relu = nn.LeakyReLU()
+        # Step 2: 10x10, stride 10 max pooling
+        self.pool = nn.MaxPool3d(5, stride=5)
+
+        # Step 3: Flatten and dense layer
+        self.flatten = nn.Flatten()
+        self.dense1 = nn.Linear(1515360, 128) #???
+
+        # Step 5: Final Dense layer, softmax
+        self.dense2 = nn.Linear(128, class_no)
+        self.softmax = nn.Softmax(dim=1)
+        
+    def forward(self, x):
+        print("Forward pass...")
+        print("Input shape:", x.shape)
+        out = self.conv(x)
+        print("After Conv (1):", out.shape)
+        out = self.relu(out)
+        print("After Relu:", out.shape)
+        out = self.pool(out)
+        print("After Pooling (1):", out.shape)
+        out = self.flatten(out)
+        print("After flattening:", out.shape)
+        out = self.dense1(out)
+        print("After Dense (1):", out.shape)
+        out = self.dense2(out)
+        print("After Dense (2):", out.shape)
+        out = self.softmax(out)
+        print("After Softmax:", out.shape)
+        
+        return out
+    
+class TorchBrainOld(nn.Module):
+    def __init__(self):
+        super(TorchBrainOld, self).__init__()
+        # Input size is 208, 240, 256, 1
+        # Step 1: Conv3D, 32 filters, 3x kernel, relu (3, 3, 3, 1, 32)
         self.conv = nn.Conv3d(1, 32, 3, padding='valid')
         self.relu = nn.LeakyReLU()
         # Step 2: 10x10, stride 10 max pooling
@@ -77,21 +116,21 @@ class TorchBrain(nn.Module):
         
     def forward(self, x):
         print("Forward pass...")
-        #print("Input shape:", x.shape)
+        print("Input shape:", x.shape)
         out = self.conv(x)
-        #print("After Conv (1):", out.shape)
+        print("After Conv (1):", out.shape)
         out = self.relu(out)
-        #print("After Relu:", out.shape)
+        print("After Relu:", out.shape)
         out = self.pool(out)
-        #print("After Pooling (1):", out.shape)
+        print("After Pooling (1):", out.shape)
         out = self.flatten(out)
-        #print("After flattening:", out.shape)
+        print("After flattening:", out.shape)
         out = self.dense1(out)
-        #print("After Dense (1):", out.shape)
+        print("After Dense (1):", out.shape)
         out = self.dense2(out)
-        #print("After Dense (2):")
+        print("After Dense (2):", out.shape)
         out = self.softmax(out)
-        #print("After Softmax:", out.shape)
+        print("After Softmax:", out.shape)
         
         return out
 
@@ -155,46 +194,11 @@ class TorchBrainModel2(nn.Module):
         
         return out
 
-class TorchBrain2D(nn.Module): # For more complex model
-    def __init__(self):
-        super(TorchBrain, self).__init__()
-        # Input size is 208, 240, 256, 1
-        # Step 1: Conv3D, 32 filters, 3x kernel, relu (3, 3, 3, 1, 32)
-        self.conv = nn.Conv2d(1, 32, 3, padding='valid')
-        self.relu = nn.LeakyReLU()
-        # Step 2: 10x10, stride 10 max pooling
-        self.pool = nn.MaxPool2d(10, stride=10)
-
-        # Step 3: Flatten and dense layer
-        self.flatten = nn.Flatten()
-        self.dense1 = nn.Linear(368000, 128) #???
-
-        # Step 5: Final Dense layer, softmax
-        self.dense2 = nn.Linear(128, class_no)
-        self.softmax = nn.Softmax(dim=1)
-        
-    def forward(self, x):
-        print("Forward pass...")
-        #print("Input shape:", x.shape)
-        out = self.conv(x)
-        #print("After Conv (1):", out.shape)
-        out = self.relu(out)
-        #print("After Relu:", out.shape)
-        out = self.pool(out)
-        #print("After Pooling (1):", out.shape)
-        out = self.flatten(out)
-        #print("After flattening:", out.shape)
-        out = self.dense1(out)
-        #print("After Dense (1):", out.shape)
-        out = self.dense2(out)
-        #print("After Dense (2):")
-        out = self.softmax(out)
-        #print("After Softmax:", out.shape)
-        
-        return out
-
 # Generate torch model
-torchy = TorchBrain()
+if not old_mode:
+    torchy = TorchBrain()
+else:
+    torchy = TorchBrainOld()
 print("Torch model loaded in.")
 if display_mode:
     print("\n", torchy, "\n", sep='')
@@ -232,9 +236,14 @@ keras.backend.clear_session()
 # Grab that data now
 print("\nExtracting data")
 scale = 1
-w = (int)(208/scale)
-h = (int)(240/scale)
-d = (int)(256/scale)
+if not old_mode:
+    w = (int)(169/scale)
+    h = (int)(208/scale)
+    d = (int)(179/scale)
+else:
+    w = (int)(208/scale)
+    h = (int)(240/scale)
+    d = (int)(256/scale)
 
 if single:
     imgname = "Directories\\test_tiny_adni_1_images.txt"
@@ -254,11 +263,11 @@ labels = [ int(i) for i in labels]
 label_file.close()
 #labels = to_categorical(labels, num_classes=class_no, dtype='float32')
 #print(path)
-print("Predicting on", len(path)+1, "images.")
+print("Predicting on", len(path), "images.")
+print(path)
 print("Distribution:", Counter(labels))
 #GPUtil.showUtilization()
 
-'''
 # Dataset loaders
 def load_img(file): # NO AUG, NO LABEL
     loc = file.numpy().decode('utf-8')
@@ -268,11 +277,10 @@ def load_img(file): # NO AUG, NO LABEL
     return nifti
 
 def load_img_wrapper(file):
-    return tf.py_function(load_val, [file], [np.float32])
-'''
-'''
-print("Data obtained. Mapping to a dataset...")
+    return tf.py_function(load_img, [file], [np.float32])
 
+print("Data obtained. Mapping to a dataset...")
+'''
 # Convert to a dataset
 x = tf.data.Dataset.from_tensor_slices((path))
 
@@ -281,15 +289,14 @@ data = (
     .map(load_img_wrapper)
     .batch(1)
 )
-'''
-'''
+
+
 tensor_x = torch.Tensor(path)
 tensor_x = tensor_x.to(device=device)
 data = TensorDataset(tensor_x)
 data = data.map(load_img_wrapper)
 loader = DataLoader(data, batch_size=1, shuffle=False)
-'''
-'''
+
 tensor_x = torch.Tensor(x) # transform to torch tensor
 tensor_x = tensor_x.to(device=device)
 print("Type [tensor_x]:", type(tensor_x))
@@ -298,15 +305,16 @@ data = TensorDataset(tensor_x) # create your datset
 
 data_loader = DataLoader(data, batch_size= 1, shuffle=False) # Set shuffle to true when we want to look at more than just the first instance.
 print("Type [data_loader]:", data_loader)
+
 '''
 # Which layer are we observing?
 #layerchoice = "dense2"
 #print("Layer chosen:", layerchoice, "- Shape:", torchy.dense2.weight.data.shape)
 #print("Examples:", torchy.dense2.weight.data[:5])
-'''
+
 # Cam injection
 print("Done. Attempting injection...")
-cam_model = medcam.inject(torchy, output_dir='Grad-Maps', backend='gcampp', layer='relu', label='best', save_maps=True) # Removed label = 'best'
+cam_model = medcam.inject(torchy, output_dir='Grad-Maps', backend='gcampp', layer='pool', label='best', save_maps=True) # Removed label = 'best'
 print("Injection successful.")
 
 for i in range (len(path)):
@@ -314,6 +322,7 @@ for i in range (len(path)):
     image = np.asarray(nib.load(path[i]).get_fdata(dtype='float32'))
     image = ne.organiseADNI(image, w, h, d, strip=strip_mode)
     image = np.expand_dims(image, axis=0)
+    print("Sending in an image of shape", image.shape)
     x = torch.Tensor(image)
     x = x.to(device=device)
     x = torch.permute(x, (0, 4, 1, 2, 3))
@@ -323,5 +332,5 @@ for i in range (len(path)):
 
 #print("Image shape:", x.shape)
 #print("Image shape:", x.shape)
-'''
+
 print("\nAll done.")

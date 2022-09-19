@@ -7,7 +7,7 @@ import nibabel as nib
 print("Imports working.")
 
 display_mode = False
-
+'''
 model_name = "ADModel_TWIN_v1.5_strip.h5"
 model = load_model(model_name)
 print("Keras model loaded in.")
@@ -29,8 +29,8 @@ layer2 = "conv3d/bias:0"
 ind_2 = names.index(layer2)
 #print(layer, "- shape", weights[ind_1].shape, "-", weights[ind_1][0])
 #print(layer2, "- shape", weights[ind_2].shape, "-", weights[0])
-
-grads = nib.load("Grad-Maps\\conv\\attention_map_0_0_0.nii.gz").get_fdata()
+'''
+grads = nib.load("Grad-Maps\\relu\\attention_map_0_0_0.nii.gz").get_fdata()
 print(grads.shape)
 print(grads)
 if grads.any() != 0:

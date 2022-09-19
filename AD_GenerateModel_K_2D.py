@@ -3,7 +3,7 @@
 # Info: Trying to fix the model since I'm convinced it's scuffed.
 # Last use in 2021: October 29th
 print("\nIMPLEMENTATION: K-Fold")
-desc = "Mode 2, standard otherwise."
+desc = "Basic model. Bad data. Mode CN/MCI"
 print(desc)
 import os
 import subprocess as sp
@@ -53,9 +53,9 @@ strip_mode = False
 norm_mode = False
 curated = False
 trimming = True
-bad_data = False
-logname = "K_v4-mode2"
-modelname = "ADModel_"+logname
+bad_data = True
+modelname = "ADModel_2DK_v1-bad-data" #Next in line: ADMODEL_NEO_v1.3
+logname = "2DK_V1-bad-data" #Neo_V1.3
 if not testing_mode:
     print("MODELNAME:", modelname)
     print("LOGS CAN BE FOUND UNDER", logname)
@@ -115,12 +115,8 @@ elif norm_mode:
     imgname = filename+"_images_normed.txt"
     labname = filename+"_labels_normed.txt"
 elif strip_mode:
-    if trimming:
-        imgname = filename+"_trimmed_images_stripped.txt"
-        labname = filename+"_trimmed_labels_stripped.txt"
-    else:
-        imgname = filename+"_images_stripped.txt"
-        labname = filename+"_labels_stripped.txt"
+    imgname = filename+"_images_stripped.txt"
+    labname = filename+"_labels_stripped.txt"
 elif trimming:
     imgname = filename+"_trimmed_images.txt"
     labname = filename+"_trimmed_labels.txt"
@@ -237,6 +233,10 @@ def fix_shape(images, labels):
     #print("Going out:", images.shape, "|", labels.shape)
     return images, labels
 
+def fix_dims(image):
+    image.set_shape([None, w, h, d, 1])
+    return image
+
 def fix_wrapper(file, labels):
     return tf.py_function(fix_shape, [file, labels], [np.float32, np.float32])
 
@@ -249,11 +249,13 @@ test_x = tf.data.Dataset.from_tensor_slices((x_test))
 test_set_x = (
     test_x.map(load_test_wrapper)
     .batch(batch_size)
+    .map(fix_dims)
     .prefetch(batch_size)
 )
 test_set = (
     test.map(load_val_wrapper)
     .batch(batch_size)
+    .map(fix_shape)
     .prefetch(batch_size)
 ) # Later we may need to use a different wrapper function? Not sure.
 
@@ -311,7 +313,6 @@ def gen_model(width=208, height=240, depth=256, classes=3): # Make sure defaults
     return model
 
 def gen_model_2(width=208, height=240, depth=256, classes=3): # Make sure defaults are equal to image resizing defaults
-    print("USING ADVANCED MODEL")
     # Initial build version - no explicit Sequential definition
     inputs = keras.Input((width, height, depth, 1)) # Added extra dimension in preprocessing to accomodate that 4th dim
 
@@ -360,14 +361,13 @@ def gen_model_2(width=208, height=240, depth=256, classes=3): # Make sure defaul
 
     return model
 
-def gen_basic_model(width=208, height=240, depth=256, classes=3): # Baby mode
-    print("USING BASIC MODEL")
+def gen_basic_2Dmodel(width=208, height=240, depth=256, classes=3): # Baby mode
     # Initial build version - no explicit Sequential definition
-    inputs = keras.Input((width, height, depth, 1)) # Added extra dimension in preprocessing to accomodate that 4th dim
+    inputs = keras.Input((width, height, depth)) # Added extra dimension in preprocessing to accomodate that 4th dim
 
     #x = layers.Conv3D(filters=32, kernel_size=5, padding='same', activation="relu")(inputs) # Layer 1: Simple 32 node start
-    x = layers.Conv3D(filters=32, kernel_size=5, padding='valid', kernel_regularizer =tf.keras.regularizers.l2( l=0.01), activation="relu")(inputs) # Layer 1: Simple 32 node start
-    x = layers.MaxPool3D(pool_size=5, strides=5)(x) # Usually max pool after the conv layer
+    x = layers.SeparableConv2D(filters=32, kernel_size=5, padding='same', kernel_regularizer =tf.keras.regularizers.l2( l=0.01), activation="relu", data_format="channels_last")(inputs) # Layer 1: Simple 32 node start
+    x = layers.MaxPool2D(pool_size=5, strides=5)(x) # Usually max pool after the conv layer
     
     #x = layers.Dropout(0.5)(x) # Here or below?
     #x = layers.GlobalAveragePooling3D()(x)
@@ -377,45 +377,24 @@ def gen_basic_model(width=208, height=240, depth=256, classes=3): # Baby mode
     outputs = layers.Dense(units=classNo, activation="softmax")(x) # Units = no of classes. Also softmax because we want that probability output
 
     # Define the model.
-    model = keras.Model(inputs, outputs, name="3DCNN_Basic")
-
-    return model
-
-def gen_basic_noreg_model(width=208, height=240, depth=256, classes=3): # Baby mode
-    print("USING BASIC MODEL (NO REG)")
-    # Initial build version - no explicit Sequential definition
-    inputs = keras.Input((width, height, depth, 1)) # Added extra dimension in preprocessing to accomodate that 4th dim
-
-    #x = layers.Conv3D(filters=32, kernel_size=5, padding='same', activation="relu")(inputs) # Layer 1: Simple 32 node start
-    x = layers.Conv3D(filters=32, kernel_size=5, padding='same', activation="relu")(inputs) # Layer 1: Simple 32 node start
-    x = layers.MaxPool3D(pool_size=5, strides=5)(x) # Usually max pool after the conv layer
-    
-    #x = layers.Dropout(0.5)(x) # Here or below?
-    #x = layers.GlobalAveragePooling3D()(x)
-    x = layers.Flatten()(x)
-    x = layers.Dense(units=128, activation="relu")(x) # Implement a simple dense layer with double units
-
-    outputs = layers.Dense(units=classNo, activation="softmax")(x) # Units = no of classes. Also softmax because we want that probability output
-
-    # Define the model.
-    model = keras.Model(inputs, outputs, name="3DCNN_Basic_NoReg")
+    model = keras.Model(inputs, outputs, name="2DCNN_Basic")
 
     return model
 
 # Checkpointing & Early Stopping
 mon = 'val_loss'
 es = EarlyStopping(monitor=mon, patience=10, restore_best_weights=True) # Temp at 30 to circumvent issue with first epoch behaving weirdly
-checkpointname = "k_fold_checkpoints.h5"
+checkpointname = "2Dk_fold_checkpoints.h5"
 if testing_mode:
     checkpointname = "k_fold_checkpoints_testing.h5"
 mc = ModelCheckpoint(checkpointname, monitor=mon, mode='auto', verbose=2, save_best_only=True) #Maybe change to true so we can more easily access the "best" epoch
 if testing_mode:
-    log_dir = "/scratch/mssric004/test_logs/fit/k_fold/" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+    log_dir = "/scratch/mssric004/test_logs/fit/2Dk_fold/" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
 else:
     if logname != "na":
-        log_dir = "/scratch/mssric004/logs/fit/k_fold/" + logname + "_" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+        log_dir = "/scratch/mssric004/logs/fit/2Dk_fold/" + logname + "_" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
     else:
-        log_dir = "/scratch/mssric004/logs/fit/k_fold/" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+        log_dir = "/scratch/mssric004/logs/fit/2Dk_fold/" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
 tb = TensorBoard(log_dir=log_dir, histogram_freq=1)
 
 # Custom callbacks (aka make keras actually report stuff during training)
@@ -436,7 +415,7 @@ class_weight_dict = dict()
 for index,value in enumerate(class_weights):
     class_weight_dict[index] = value
 #class_weight_dict = {i:w for i,w in enumerate(class_weights)}
-print("Class weight distribution will be:", class_weight_dict)
+print("Class weight dsitribution will be:", class_weight_dict)
 
 # Build model. (Have to do all this here to try fix OOM issue)
 if batch_size > 1:
@@ -444,7 +423,7 @@ if batch_size > 1:
 else:
     metric = 'accuracy'
 def initial_model(w, h, d, classNo, metric):
-    model = gen_basic_model(width=w, height=h, depth=d, classes=classNo)
+    model = gen_basic_2Dmodel(width=w, height=h, depth=d, classes=classNo)
     optim = keras.optimizers.Adam(learning_rate=0.0001)# , epsilon=1e-3) # LR chosen based on principle but double-check this later
     if metric == 'binary_accuracy':
         model.compile(optimizer=optim, loss='categorical_crossentropy', metrics=[tf.keras.metrics.BinaryAccuracy()]) #metrics=['accuracy']) #metrics=[tf.keras.metrics.BinaryAccuracy()]
@@ -466,7 +445,6 @@ loss_per_fold = []
 rar = 0
 skf = StratifiedKFold(n_splits=n_folds, random_state=rar, shuffle=True)
 mis_classes = []
-suc_classes = []
 
 print("\nStarting cross-fold validation process...")
 print("Params:", epochs, "epochs &", batch_size, "batches.")
@@ -567,7 +545,7 @@ for train_index, val_index in skf.split(x, y):
             import matplotlib
             matplotlib.use('agg')
             import matplotlib.pyplot as plt
-            plotpath = "Plots/Kfold/"
+            plotpath = "Plots/Kfold-2D/"
             path = make_unique(plotpath, fold)
             if testing_mode:
                 plotname = "testing_fold"
@@ -627,8 +605,6 @@ for train_index, val_index in skf.split(x, y):
         for i in range(0, len(y_pred)):
             if y_pred[i] != y_test_arged[i]:
                 mis_classes.append(x_test[i])
-            else:
-                suc_classes.append(x_test[i])
     except Exception as e:
         print("Error while checking incorrect predictions.", e)
 
@@ -638,8 +614,7 @@ for train_index, val_index in skf.split(x, y):
 if testing_mode:
     modelname = "ADModel_K_Testing"
 modelname = modelname +".h5"
-model.save("/scratch/mssric004/Saved Models/"+modelname)
-print("Saved the model to scratch models:", modelname)
+#model.save(modelname)
 # Electing not to save for now since the file it generates is HUGE
 
 
@@ -657,22 +632,14 @@ print("------------------------------------------------------------------------"
 
 # Save stuff so I can make a box and whisker plot later
 loc = "Means/" + logname
-print("Saving means to:", loc)
 np.savez(loc, acc_per_fold, loss_per_fold)
 
 # Check those tricky images
 mis_d = Counter(mis_classes)
-howmany = 3
+howmany = 5
 print("\nMismatched test images (top ", howmany, "):", sep='')
 common = mis_d.most_common()
 for j in range(0, howmany-1):
     print(common[j])
-
-# Best performing images
-suc_d = Counter(suc_classes)
-print("\nBest performing images (top ", howmany, ":", sep='')
-least = mis_d.most_common()
-for k in range(0, howmany-1):
-    print(least[-k])
 
 print("Done.")

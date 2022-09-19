@@ -8,12 +8,12 @@ from numpy import not_equal
 
 # https://stackoverflow.com/questions/71045309/how-to-create-a-dataset-for-tensorflow-from-a-txt-file-containing-paths-and-labe
 
-gen_tests = True
+gen_tests = False
 tiny_mode = False
 strip = False
 norm = False
 no_dupes = False
-trimming = True
+trimming = False
 if gen_tests:
 	root = "/scratch/mssric004/ADNI_Test"
 elif tiny_mode:
@@ -45,7 +45,7 @@ for mode in range(1, 4):
     else:
         imgfile = filename + "_images.txt"
         labelfile = filename + "_labels.txt"
-    print("Writing to", filename)
+    print("Writing to", imgfile, "and", labelfile)
     newline = '' # Little trick to avoid having a newline at the end of file
     countCN = 0
     countMCI = 0
