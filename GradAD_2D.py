@@ -23,6 +23,7 @@ print("Imports working.")
 # Flags
 display_mode = True # Print out all the weight info
 single = True
+slicer = False
 memory_mode = False # Print out memory summaries
 strip_mode = False
 
@@ -181,16 +182,25 @@ h = (int)(208/scale)
 d = (int)(179/scale)
 
 if single:
-    imgname = "Directories\\test_tiny_adni_1_images.txt"
-    labname = "Directories\\test_tiny_adni_1_labels.txt"
+    if slicer:
+        imgname = "Directories\\test_single_adni_2_images.txt"
+        labname = "Directories\\test_single_adni_2_labels.txt"
+    else:
+        imgname = "Directories\\single.txt"
+        labname = "Directories\\single-label.txt"
 else:
-    imgname = "Directories\\test_adni_1_images.txt"
-    labname = "Directories\\test_adni_1_labels.txt"
+    imgname = "Directories\\test_adni_2_trimmed_images.txt"
+    labname = "Directories\\test_adni_2_trimmed_labels.txt"
 print("Reading from", imgname, "and", labname)
 path_file = open(imgname, "r")
 path = path_file.read()
 path = path.split("\n")
 path_file.close()
+if slicer:
+    temp = path[0]
+    path = os.listdir(path[0])
+    for i in range(0, len(path)):
+        path[i] = os.path.join(temp, path[i])
 label_file = open(labname, 'r')
 labels = label_file.read()
 labels = labels.split("\n")
@@ -198,7 +208,7 @@ labels = [ int(i) for i in labels]
 label_file.close()
 #labels = to_categorical(labels, num_classes=class_no, dtype='float32')
 #print(path)
-print("Predicting on", len(path)+1, "images.")
+print("Predicting on", len(path), "images.")
 print("Distribution:", Counter(labels))
 #GPUtil.showUtilization()
 
@@ -250,7 +260,7 @@ print("Type [data_loader]:", data_loader)
 
 # Cam injection
 print("Done. Attempting injection...")
-cam_model = medcam.inject(torchy, output_dir='Grad-Maps-2D', backend='gcampp', layer='relu', label='best', save_maps=True) # Removed label = 'best'
+cam_model = medcam.inject(torchy, output_dir='Grad-Maps-2D', backend='gcam', layer='relu', label='best', save_maps=True) # Removed label = 'best'
 print("Injection successful.")
 
 sing = np.asarray(nib.load(path[0]).get_fdata(dtype='float32'))
@@ -258,8 +268,24 @@ image = ne.organiseADNI(sing, w, h, d, strip=strip_mode)
 image = image[:,:,modelnum]
 
 from PIL import Image
-im = Image.fromarray(image)
-im.save("Grad-Maps-2D/reference.png")
+img_arr = np.squeeze(image, axis=2)
+im = Image.fromarray((img_arr * 255).astype(np.uint8))
+print("shape:", img_arr.shape)
+im.convert('L')
+im.save("Grad-Maps-2D/reference.jpg")
+
+'''
+import pydicom
+dicom = pydicom.read_file(path[modelnum])
+arr = dicom.pixel_array
+cv2.imwrite("Grad-Maps-2D/reference_pre.jpg", arr)
+#image = ne.normalize_per(arr)
+#cv2.imwrite("Grad-Maps-2D/reference_normed.jpg", image)
+image = ne.organiseSlice(arr, w, h, strip=True)
+image = image.astype(float)
+cv2.imwrite("Grad-Maps-2D/reference_cropped.jpg", image)
+print("Input shape is:", image.shape)
+'''
 
 image = np.expand_dims(image, axis=0)
 print("Input shape is:", image.shape)
@@ -270,6 +296,7 @@ x = torch.permute(x, (0, 3, 1, 2))
 print("Shape after permutation:", x.shape)
 pred = cam_model(x)
 pred_read = pred.detach().cpu().numpy()
+#print(pred_read.shape)
 print("Prediction:", pred_read, "(actual:", labels[0], ")")
 
 '''

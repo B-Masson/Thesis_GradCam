@@ -25,7 +25,7 @@ display_mode = True # Print out all the weight info
 single = True
 memory_mode = False # Print out memory summaries
 strip_mode = False
-old_mode = True
+basic_mode = True
 
 # Memory setup
 if memory_mode:
@@ -33,10 +33,10 @@ if memory_mode:
     torch.backends.cudnn.enabled = True
     GPUtil.showUtilization()
 
-model_name = "ADModel_TWIN_v1.5_strip.h5"
+model_name = "Models/ADModel_NEO_V3.h5"
 #model_name = "Models/ADModel_NEO_v2.7.h5"
 model = load_model(model_name)
-print("Keras model loaded in.")
+print("Keras model loaded in. [", model_name, "]")
 #GPUtil.showUtilization()
 weights=model.get_weights()
 #print("No. of weights elements =", len(weights))
@@ -96,19 +96,20 @@ class TorchBrain(nn.Module):
         
         return out
     
-class TorchBrainOld(nn.Module):
+class TorchBrainBasic(nn.Module):
     def __init__(self):
-        super(TorchBrainOld, self).__init__()
+        super(TorchBrainBasic, self).__init__()
         # Input size is 208, 240, 256, 1
         # Step 1: Conv3D, 32 filters, 3x kernel, relu (3, 3, 3, 1, 32)
-        self.conv = nn.Conv3d(1, 32, 3, padding='valid')
+        #self.conv = nn.Conv3d(1, 32, 5, padding='valid')
+        self.conv = nn.Conv3d(1, 32, 5, padding='valid')
         self.relu = nn.LeakyReLU()
         # Step 2: 10x10, stride 10 max pooling
-        self.pool = nn.MaxPool3d(10, stride=10)
+        self.pool = nn.MaxPool3d(5, stride=5)
 
         # Step 3: Flatten and dense layer
         self.flatten = nn.Flatten()
-        self.dense1 = nn.Linear(368000, 128) #???
+        self.dense1 = nn.Linear(1478400, 128) #???
 
         # Step 5: Final Dense layer, softmax
         self.dense2 = nn.Linear(128, class_no)
@@ -195,10 +196,10 @@ class TorchBrainModel2(nn.Module):
         return out
 
 # Generate torch model
-if not old_mode:
+if not basic_mode:
     torchy = TorchBrain()
 else:
-    torchy = TorchBrainOld()
+    torchy = TorchBrainBasic()
 print("Torch model loaded in.")
 if display_mode:
     print("\n", torchy, "\n", sep='')
@@ -236,18 +237,13 @@ keras.backend.clear_session()
 # Grab that data now
 print("\nExtracting data")
 scale = 1
-if not old_mode:
-    w = (int)(169/scale)
-    h = (int)(208/scale)
-    d = (int)(179/scale)
-else:
-    w = (int)(208/scale)
-    h = (int)(240/scale)
-    d = (int)(256/scale)
+w = (int)(169/scale)
+h = (int)(208/scale)
+d = (int)(179/scale)
 
 if single:
-    imgname = "Directories\\test_tiny_adni_1_images.txt"
-    labname = "Directories\\test_tiny_adni_1_labels.txt"
+    imgname = "Directories\\single-CN.txt"
+    labname = "Directories\\single-CN-label.txt"
 else:
     imgname = "Directories\\test_adni_1_images.txt"
     labname = "Directories\\test_adni_1_labels.txt"
@@ -267,7 +263,7 @@ print("Predicting on", len(path), "images.")
 print(path)
 print("Distribution:", Counter(labels))
 #GPUtil.showUtilization()
-
+'''
 # Dataset loaders
 def load_img(file): # NO AUG, NO LABEL
     loc = file.numpy().decode('utf-8')
@@ -278,7 +274,7 @@ def load_img(file): # NO AUG, NO LABEL
 
 def load_img_wrapper(file):
     return tf.py_function(load_img, [file], [np.float32])
-
+'''
 print("Data obtained. Mapping to a dataset...")
 '''
 # Convert to a dataset
@@ -314,9 +310,32 @@ print("Type [data_loader]:", data_loader)
 
 # Cam injection
 print("Done. Attempting injection...")
-cam_model = medcam.inject(torchy, output_dir='Grad-Maps', backend='gcampp', layer='pool', label='best', save_maps=True) # Removed label = 'best'
+cam_model = medcam.inject(torchy, output_dir='Grad-Maps-CN', backend='gcam', layer='relu', label='best', save_maps=True) # Removed label = 'best'
 print("Injection successful.")
 
+sing = np.asarray(nib.load(path[0]).get_fdata(dtype='float32'))
+image = ne.organiseADNI(sing, w, h, d, strip=strip_mode)
+
+ref_slice = 60
+from PIL import Image
+img_arr = np.squeeze(image[:,:,ref_slice], axis=2)
+im = Image.fromarray((img_arr * 255).astype(np.uint8))
+print("shape:", img_arr.shape)
+im.convert('L')
+im.save("Grad-Maps/reference.jpg")
+
+image = np.expand_dims(image, axis=0)
+print("Input shape is:", image.shape)
+x = torch.Tensor(image)
+x = x.to(device=device)
+print("Permuting...")
+x = torch.permute(x, (0, 4, 1, 2, 3))
+print("Shape after permutation:", x.shape)
+pred = cam_model(x)
+pred_read = pred.detach().cpu().numpy()
+print("Prediction:", pred_read, "(actual:", labels[0], ")")
+
+'''
 for i in range (len(path)):
     # Incredibly dirty way of preparing this data
     image = np.asarray(nib.load(path[i]).get_fdata(dtype='float32'))
@@ -329,6 +348,7 @@ for i in range (len(path)):
     pred = cam_model(x)
     pred_read = pred.detach().cpu().numpy()
     print("Prediction #", i+1, ": ", pred_read[0], " | Actual: ", labels[i], sep='')
+'''
 
 #print("Image shape:", x.shape)
 #print("Image shape:", x.shape)
