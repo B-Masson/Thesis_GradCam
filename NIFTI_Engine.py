@@ -484,7 +484,7 @@ def organiseOptimise(data, w, h, d, mode):
     return data
 
 def organiseSlice(data, w, h, strip=False):
-    data = normalize(data)
+    data = normalize_per(data)
     data = resizeSlice(data, w, h, stripped=strip)
     #data = np.repeat(data, 3, axis=2) # Replicate it into 3 dimensions
     #print("Data shape:", data.shape)

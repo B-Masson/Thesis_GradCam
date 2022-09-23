@@ -8,14 +8,14 @@ from numpy import not_equal
 
 # https://stackoverflow.com/questions/71045309/how-to-create-a-dataset-for-tensorflow-from-a-txt-file-containing-paths-and-labe
 
-gen_tests = False
+gen_tests = True
 tiny_mode = False
 strip = False
 norm = False
 no_dupes = False
-trimming = False
+trimming = True
 if gen_tests:
-	root = "/scratch/mssric004/ADNI_Test"
+	root = "C:\\Users\\richa\\Documents\\Thesis\Code\\Data\\ADNI_Test"
 elif tiny_mode:
     root = "/scratch/mssric004/ADNI_Test_Tiny"
 else:
