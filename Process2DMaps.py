@@ -3,23 +3,27 @@ import matplotlib.pyplot as plt
 import numpy as np
 import os
 import os.path as op
+from PIL import Image
 print("Imports done.")
 
-# 208, 240, 256
+# 179, 208, 179
 
-path = "Grad-Maps-2D\\relu"
-direct = os.listdir(path)
-count = 0
-for im in direct:
-    if count < 1:
-        # Read Images
-        img = mpimg.imread(op.join(path, im))
-        # Output Images
-        print("Shape of map image:", img.shape)
-        plt.imshow(img, interpolation='nearest')
-        plt.show()
-        count += 1
-        
-print("Excess:", (412-208)+(476-240))
+root = "Grad-Maps-2D\\relu\\"
+path = root + "attention_map_0_0_0.png"
+refloc = "Grad-Maps-2D\\reference.jpg"
 
-print("All done.")
+grad = Image.open(path)
+ref = Image.open(refloc)
+print("Grad:", grad.size)
+print("Ref:", ref.size)
+
+grad = grad.convert("RGBA")
+ref = ref.convert("RGBA")
+ref = ref.resize((612, 495))
+
+new_img = Image.blend(ref, grad, 0.5)
+new_img.save("Grad-Maps-2D\\Maps\\test.png","PNG")
+ref.save("Grad-Maps-2D\\Maps\\orig.png","PNG")
+
+print("All done!")
+
