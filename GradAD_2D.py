@@ -170,8 +170,8 @@ torchy.dense2.bias.data = torch.from_numpy(weights[5])
 #device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 device = 'cpu'
 torchy.to(device=device)
-del model
-keras.backend.clear_session()
+#del model
+#keras.backend.clear_session()
 #GPUtil.showUtilization()
 
 # Grab that data now
@@ -260,9 +260,9 @@ print("Type [data_loader]:", data_loader)
 
 # Cam injection
 print("Done. Attempting injection...")
-cam_model = medcam.inject(torchy, output_dir='Grad-Maps-2D', backend='gcam', layer='relu', label='best', save_maps=True) # Removed label = 'best'
+#cam_model = medcam.inject(torchy, output_dir='Grad-Maps-2D', backend='gcam', layer='relu', label='best', save_maps=True) # Removed label = 'best'
 print("Injection successful.")
-
+'''
 sing = np.asarray(nib.load(path[0]).get_fdata(dtype='float32'))
 image = ne.organiseADNI(sing, w, h, d, strip=strip_mode)
 image = image[:,:,modelnum]
@@ -273,7 +273,7 @@ im = Image.fromarray((img_arr * 255).astype(np.uint8))
 print("shape:", img_arr.shape)
 im.convert('L')
 im.save("Grad-Maps-2D/reference.jpg")
-
+'''
 '''
 import pydicom
 dicom = pydicom.read_file(path[modelnum])
@@ -286,7 +286,7 @@ image = image.astype(float)
 cv2.imwrite("Grad-Maps-2D/reference_cropped.jpg", image)
 print("Input shape is:", image.shape)
 '''
-
+'''
 image = np.expand_dims(image, axis=0)
 print("Input shape is:", image.shape)
 x = torch.Tensor(image)
@@ -298,26 +298,45 @@ pred = cam_model(x)
 pred_read = pred.detach().cpu().numpy()
 #print(pred_read.shape)
 print("Prediction:", pred_read, "(actual:", labels[0], ")")
-
 '''
+
+x_arr = []
+tp = []
+kp = []
 for i in range (len(path)):
     # Incredibly dirty way of preparing this data
     image = np.asarray(nib.load(path[i]).get_fdata(dtype='float32'))
     image = ne.organiseADNI(image, w, h, d, strip=strip_mode)
     image = image[:,:,modelnum]
-    #image = np.expand_dims(image, axis=0)
+    image = np.expand_dims(image, axis=0)
+    #print("Sending in an image of shape", image.shape)
     x = torch.Tensor(image)
     x = x.to(device=device)
-    print("Shape before:", x.shape)
-    #x = torch.permute(x, (3, 2, 0, 1))
-    x = torch.permute(x, (2, 0, 1))
-    print("Shape:", x.shape)
-    pred = cam_model(x)
+    x = torch.permute(x, (0, 3, 1, 2))
+    #x_arr.append(x) # ?
+    #pred = cam_model(x)
+    pred = torchy(x)
     pred_read = pred.detach().cpu().numpy()
-    print("Prediction #", i+1, ": ", pred_read[0], " | Actual: ", labels[i], sep='')
-'''
+    preds = np.argmax(pred_read, axis=1)
+    print("\nTorch prediction:", pred_read[0], "| (", preds[0], "vs. actual:", labels[i], ")")
+    tp.append(preds[0])
+    kerpred = model.predict(image)
+    kerpreddy = np.argmax(kerpred, axis=1)
+    print("Keras prediction:", kerpred[0], "| (", kerpreddy[0], "vs. actual:", labels[i], ")")
+    kp.append(kerpreddy[0])
+
+print("Torch:", tp)
+print("Actual:", labels)
+corr = 0
+total = 0
+for i in range(0, len(labels)):
+    if tp[i] == labels[i]:
+        corr += 1
+    total += 1
+acc = (corr/total)*100
+print("Rough acc: ", acc, "%", sep='')
 
 #print("Image shape:", x.shape)
 #print("Image shape:", x.shape)
-
+keras.backend.clear_session()
 print("\nAll done.")

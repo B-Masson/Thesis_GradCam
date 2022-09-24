@@ -22,7 +22,7 @@ print("Imports working.")
 
 # Flags
 display_mode = True # Print out all the weight info
-single = True
+single = False
 memory_mode = False # Print out memory summaries
 strip_mode = False
 basic_mode = True
@@ -33,18 +33,17 @@ if memory_mode:
     torch.backends.cudnn.enabled = True
     GPUtil.showUtilization()
 
-model_name = "Models/ADModel_NEO_V3.h5"
-#model_name = "Models/ADModel_NEO_v2.7.h5"
+model_name = "Models/ADModel_NEO_V5-basicvalid.h5"
 model = load_model(model_name)
 print("Keras model loaded in. [", model_name, "]")
 #GPUtil.showUtilization()
 weights=model.get_weights()
-#print("No. of weights elements =", len(weights))
+print("No. of weights elements =", len(weights))
 #for i in range(len(weights)):
 #    print("Weight ", (i+1), ": ", weights[i].shape, sep='')
 
 names = [weight.name for layer in model.layers for weight in layer.weights]
-weights = model.get_weights()
+#weights = model.get_weights()
 wi = [] # Weight info
 
 for name, weight in zip(names, weights):
@@ -58,44 +57,7 @@ if display_mode:
 class_no = 2 # Need to hardcode this for now
 
 # Recreate model in Torch
-class TorchBrain(nn.Module):
-    def __init__(self):
-        super(TorchBrain, self).__init__()
-        # Input size is 208, 240, 256, 1
-        # Step 1: Conv3D, 32 filters, 3x kernel, relu (3, 3, 3, 1, 32)
-        self.conv = nn.Conv3d(1, 32, 5, padding='valid')
-        self.relu = nn.LeakyReLU()
-        # Step 2: 10x10, stride 10 max pooling
-        self.pool = nn.MaxPool3d(5, stride=5)
 
-        # Step 3: Flatten and dense layer
-        self.flatten = nn.Flatten()
-        self.dense1 = nn.Linear(1515360, 128) #???
-
-        # Step 5: Final Dense layer, softmax
-        self.dense2 = nn.Linear(128, class_no)
-        self.softmax = nn.Softmax(dim=1)
-        
-    def forward(self, x):
-        print("Forward pass...")
-        print("Input shape:", x.shape)
-        out = self.conv(x)
-        print("After Conv (1):", out.shape)
-        out = self.relu(out)
-        print("After Relu:", out.shape)
-        out = self.pool(out)
-        print("After Pooling (1):", out.shape)
-        out = self.flatten(out)
-        print("After flattening:", out.shape)
-        out = self.dense1(out)
-        print("After Dense (1):", out.shape)
-        out = self.dense2(out)
-        print("After Dense (2):", out.shape)
-        out = self.softmax(out)
-        print("After Softmax:", out.shape)
-        
-        return out
-    
 class TorchBrainBasic(nn.Module):
     def __init__(self):
         super(TorchBrainBasic, self).__init__()
@@ -116,22 +78,22 @@ class TorchBrainBasic(nn.Module):
         self.softmax = nn.Softmax(dim=1)
         
     def forward(self, x):
-        print("Forward pass...")
-        print("Input shape:", x.shape)
+        #print("Forward pass...")
+        #print("Input shape:", x.shape)
         out = self.conv(x)
-        print("After Conv (1):", out.shape)
+        #print("After Conv (1):", out.shape)
         out = self.relu(out)
-        print("After Relu:", out.shape)
+        #print("After Relu:", out.shape)
         out = self.pool(out)
-        print("After Pooling (1):", out.shape)
+        #print("After Pooling (1):", out.shape)
         out = self.flatten(out)
-        print("After flattening:", out.shape)
+        #print("After flattening:", out.shape)
         out = self.dense1(out)
-        print("After Dense (1):", out.shape)
+        #print("After Dense (1):", out.shape)
         out = self.dense2(out)
-        print("After Dense (2):", out.shape)
+        #print("After Dense (2):", out.shape)
         out = self.softmax(out)
-        print("After Softmax:", out.shape)
+        #print("After Softmax:", out.shape)
         
         return out
 
@@ -196,10 +158,7 @@ class TorchBrainModel2(nn.Module):
         return out
 
 # Generate torch model
-if not basic_mode:
-    torchy = TorchBrain()
-else:
-    torchy = TorchBrainBasic()
+torchy = TorchBrainBasic()
 print("Torch model loaded in.")
 if display_mode:
     print("\n", torchy, "\n", sep='')
@@ -225,13 +184,19 @@ torchy.dense1.bias.data = torch.from_numpy(weights[3])
 torchy.dense2.weight.data = torch.from_numpy(np.transpose(weights[4]))
 torchy.dense2.bias.data = torch.from_numpy(weights[5])
 
+#print("\nChecking that the weights are the same?")
+#print("Torch")
+#print(torchy.conv.weight.data)
+#print("Keras")
+#print(np.transpose(weights[0]))
+
 # GPU MODE ENGAGE
 #print(torch.cuda.get_device_name(0))
 #device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 device = 'cpu'
 torchy.to(device=device)
-del model
-keras.backend.clear_session()
+#del model
+#keras.backend.clear_session()
 #GPUtil.showUtilization()
 
 # Grab that data now
@@ -245,8 +210,8 @@ if single:
     imgname = "Directories\\single-CN.txt"
     labname = "Directories\\single-CN-label.txt"
 else:
-    imgname = "Directories\\test_adni_1_images.txt"
-    labname = "Directories\\test_adni_1_labels.txt"
+    imgname = "Directories\\test_adni_2_trimmed_images.txt"
+    labname = "Directories\\test_adni_2_trimmed_labels.txt"
 print("Reading from", imgname, "and", labname)
 path_file = open(imgname, "r")
 path = path_file.read()
@@ -260,7 +225,7 @@ label_file.close()
 #labels = to_categorical(labels, num_classes=class_no, dtype='float32')
 #print(path)
 print("Predicting on", len(path), "images.")
-print(path)
+#print(path)
 print("Distribution:", Counter(labels))
 #GPUtil.showUtilization()
 '''
@@ -310,9 +275,9 @@ print("Type [data_loader]:", data_loader)
 
 # Cam injection
 print("Done. Attempting injection...")
-cam_model = medcam.inject(torchy, output_dir='Grad-Maps-CN', backend='gcam', layer='relu', label='best', save_maps=True) # Removed label = 'best'
+#cam_model = medcam.inject(torchy, output_dir='Grad-Maps-CN', backend='gcam', layer='relu', label='best', save_maps=True) # Removed label = 'best'
 print("Injection successful.")
-
+'''
 sing = np.asarray(nib.load(path[0]).get_fdata(dtype='float32'))
 image = ne.organiseADNI(sing, w, h, d, strip=strip_mode)
 
@@ -331,26 +296,52 @@ x = x.to(device=device)
 print("Permuting...")
 x = torch.permute(x, (0, 4, 1, 2, 3))
 print("Shape after permutation:", x.shape)
-pred = cam_model(x)
-pred_read = pred.detach().cpu().numpy()
-print("Prediction:", pred_read, "(actual:", labels[0], ")")
-
+#pred = cam_model(x)
 '''
+'''
+pred = torchy(x)
+pred_read = pred.detach().cpu().numpy()
+preds = np.argmax(pred_read, axis=1)
+print("Prediction:", pred_read[0], "| (", preds, "vs. actual:", labels[0], ")")
+print("Keras prediction:", model.predict(image)[0])
+'''
+
+x_arr = []
+tp = []
+kp = []
 for i in range (len(path)):
     # Incredibly dirty way of preparing this data
     image = np.asarray(nib.load(path[i]).get_fdata(dtype='float32'))
     image = ne.organiseADNI(image, w, h, d, strip=strip_mode)
     image = np.expand_dims(image, axis=0)
-    print("Sending in an image of shape", image.shape)
+    #print("Sending in an image of shape", image.shape)
     x = torch.Tensor(image)
     x = x.to(device=device)
     x = torch.permute(x, (0, 4, 1, 2, 3))
-    pred = cam_model(x)
+    #x_arr.append(x) # ?
+    #pred = cam_model(x)
+    pred = torchy(x)
     pred_read = pred.detach().cpu().numpy()
-    print("Prediction #", i+1, ": ", pred_read[0], " | Actual: ", labels[i], sep='')
-'''
+    preds = np.argmax(pred_read, axis=1)
+    print("\nTorch prediction:", pred_read[0], "| (", preds[0], "vs. actual:", labels[i], ")")
+    tp.append(preds[0])
+    kerpred = model.predict(image)
+    kerpreddy = np.argmax(kerpred, axis=1)
+    print("Keras prediction:", kerpred[0], "| (", kerpreddy[0], "vs. actual:", labels[i], ")")
+    kp.append(kerpreddy[0])
+    
+print("Torch:", tp)
+print("Actual:", labels)
+corr = 0
+total = 0
+for i in range(0, len(labels)):
+    if tp[i] == labels[i]:
+        corr += 1
+    total += 1
+acc = (corr/total)*100
+print("Rough acc: ", acc, "%", sep='')
 
 #print("Image shape:", x.shape)
 #print("Image shape:", x.shape)
-
+keras.backend.clear_session()
 print("\nAll done.")
