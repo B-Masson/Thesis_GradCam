@@ -23,6 +23,11 @@ model_name = "Models/ADModel_NEO_V5-basicvalid.h5"
 model = load_model(model_name)
 print("Keras model loaded in.")
 
+print("Compiling...")
+optim = keras.optimizers.Adam(learning_rate=0.001)# , epsilon=1e-3) # LR chosen based on principle but double-check this later
+#model.compile(optimizer=optim, loss='sparse_categorical_crossentropy', metrics=[tf.keras.metrics.BinaryAccuracy()])
+model.compile(optimizer=optim,loss='categorical_crossentropy', metrics=['accuracy'])
+
 # Get da input
 class_param = ""
 if classy == "CN":
@@ -49,7 +54,8 @@ h = 208
 d = 179
 
 # Prepare input
-img = np.asarray(nib.load(path[0]).get_fdata(dtype='float32'))
+func = nib.load(path[0])
+img = np.asarray(func.get_fdata(dtype='float32'))
 img = ne.organiseADNI(img, w, h, d, strip=False)
 img = np.expand_dims(img, axis=0)
 
@@ -171,11 +177,14 @@ i = np.argmax(prediction[0])
 #for idx in range(len(model.layers)):
 #    print(model.get_layer(index = idx).name)
 print("Instantiating Grad Map...")
-icam = GradCAM(model, i, 'conv3d')
-#print("Generating heatmap.")
+icam = GradCAM(model, prediction[0], 'conv3d')
+print("Generating heatmap.")
 heatmap = icam.compute_heatmap(img)
 print("Heatmap is shape:", heatmap.shape)
-print("Img is:", img.shape)
+
+# Try and save it to NIFTI
+new_image = nib.Nifti1Image(heatmap, func.affine)
+nib.save(new_image, "Gradients/testround.nii.gz")
 
 #image = np.squeeze(img, axis=3)
 #image = np.squeeze(image, axis=0)
@@ -183,7 +192,7 @@ print("Img is:", img.shape)
 #image = (image * 255).astype("uint8")
 #image = cv2.applyColorMap(image, cv2.COLORMAP_BONE)
 #print("Img is:", image.shape)
-
+'''
 #(heatmap, output) = icam.overlay_heatmap(heatmap, image, alpha=0.5)
 slicerange = range(25, 156, 25)
 print("Time to try and display:")
@@ -194,7 +203,7 @@ for sliceno in slicerange:
     plt.imshow(heatmap2d)
     plt.show()
     plt.clf()
-
+'''
 '''
 print("Displaying...")
 fig, ax = plt.subplots(1, 3)
