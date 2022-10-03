@@ -467,7 +467,7 @@ else:
     else:
         model = gen_basic_noreg(width=w, height=h, depth=d, classes=classNo)
 model.summary()
-optim = keras.optimizers.Adam(learning_rate=0.0001)# , epsilon=1e-3) # LR chosen based on principle but double-check this later
+optim = keras.optimizers.Adam(learning_rate=0.001)# , epsilon=1e-3) # LR chosen based on principle but double-check this later
 #model.compile(optimizer=optim, loss='binary_crossentropy', metrics=['accuracy']) # Temp binary for only two classes
 if batch_size > 1:
     metric = 'binary_accuracy'
