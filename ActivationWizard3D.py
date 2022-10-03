@@ -22,6 +22,7 @@ import sys
 from collections import Counter
 import keract
 from keract import get_activations
+import KeractAlt as keract2
 print("Imports working.")
 
 # Flags
@@ -43,7 +44,8 @@ print("Keras model loaded in. [", model_name, "]")
 
 print("Compiling...")
 optim = keras.optimizers.Adam(learning_rate=0.001)# , epsilon=1e-3) # LR chosen based on principle but double-check this later
-model.compile(optimizer=optim, loss='sparse_categorical_crossentropy', metrics=[tf.keras.metrics.BinaryAccuracy()])
+#model.compile(optimizer=optim, loss='sparse_categorical_crossentropy', metrics=[tf.keras.metrics.BinaryAccuracy()])
+model.compile(optimizer=optim,loss='categorical_crossentropy', metrics=['accuracy'])
 
 # Grab that data now
 print("\nExtracting data")
@@ -93,24 +95,44 @@ print("Data obtained. Mapping to a dataset...")
 x_arr = []
 tp = []
 kp = []
+saveloc = "Activations/Manual/"
 #for i in range (len(path)):
 for i in range(1):
     # Incredibly dirty way of preparing this data
-    image = np.asarray(nib.load(path[i]).get_fdata(dtype='float32'))
+    func = nib.load(path[i])
+    image = np.asarray(func.get_fdata(dtype='float32'))
     image = ne.organiseADNI(image, w, h, d, strip=strip_mode)
     image = np.expand_dims(image, axis=0)
     # Here goes nothing
     lab = to_categorical(labels[i])
     layername = "conv3d"
     print("Getting activations")
-    activations = get_activations(model, image)
+    activations = keract2.get_activations(model, image, layer_names='conv3d')
     [print(k, '->', v.shape, '- Numpy array') for (k, v) in activations.items()]
+    
+    gradmap = keract2.gen_heatmaps(activations, image)
+    print("The activation map has the following shape:", gradmap[0].shape)
+    grad = gradmap[0]
+    
+    # Transform this thing
+    numer = grad - np.min(grad)
+    denom = (grad.max() - grad.min()) + eps
+    grad = numer / denom
+    grad = (grad * 255).astype("uint8")
+    
+    gslice = grad[:,:,80]
+    plt.imshow(gslice)
+    slicename = saveloc + "image" +str(i) +"_class" +str(labels[i]) +".png"
+    plt.savefig(slicename)
+    #plt.show()
+    new_image = nib.Nifti1Image(grad, func.affine)
+    nib.save(new_image, saveloc + "NIFTI/image" +str(i) +"_class" +str(labels[i]) +".nii.gz")
     #conv = get_activations(model, image, layer_names=layername)
     #grads = keract.get_gradients_of_activations(model, image, [1], layer_names=layername, output_format='simple')
     #print("Grads")
     #[print(k, '->', v.shape, '- Numpy array') for (k, v) in grads.items()]
 
+
 keras.backend.clear_session()
 print("\nAll done.")
-
 
