@@ -18,11 +18,12 @@ import matplotlib.pyplot as plt
 import GPUtil
 import sys
 from collections import Counter
+import keract
 print("Imports working.")
 
 # Flags
 display_mode = True # Print out all the weight info
-single = False
+single = True
 memory_mode = False # Print out memory summaries
 strip_mode = False
 basic_mode = True
@@ -58,6 +59,7 @@ class_no = 2 # Need to hardcode this for now
 
 # Recreate model in Torch
 
+'''
 class TorchBrainBasic(nn.Module):
     def __init__(self):
         super(TorchBrainBasic, self).__init__()
@@ -65,7 +67,8 @@ class TorchBrainBasic(nn.Module):
         # Step 1: Conv3D, 32 filters, 3x kernel, relu (3, 3, 3, 1, 32)
         #self.conv = nn.Conv3d(1, 32, 5, padding='valid')
         self.conv = nn.Conv3d(1, 32, 5, padding='valid')
-        self.relu = nn.LeakyReLU()
+        #self.relu = nn.LeakyReLU()
+        self. relu = nn.ReLU()
         # Step 2: 10x10, stride 10 max pooling
         self.pool = nn.MaxPool3d(5, stride=5)
 
@@ -90,10 +93,61 @@ class TorchBrainBasic(nn.Module):
         #print("After flattening:", out.shape)
         out = self.dense1(out)
         #print("After Dense (1):", out.shape)
+        out = self.relu(out)
+        #print("After Relu:", out.shape)
         out = self.dense2(out)
         #print("After Dense (2):", out.shape)
         out = self.softmax(out)
         #print("After Softmax:", out.shape)
+        
+        return out
+'''
+torchact = {}
+
+class TorchBrainBasic(nn.Module):
+    def __init__(self):
+        super(TorchBrainBasic, self).__init__()
+        # Input size is 169, 208, 179
+        # Step 1: Conv3D, 32 filters, 5x kernel
+        self.conv = nn.Conv3d(in_channels=1, out_channels=32, kernel_size=5, padding=0)
+        # Step 1.5: Define ReLU function
+        self.relu = nn.ReLU()
+        # Step 2: 5x5x5, stride 5 max pooling
+        self.pool = nn.MaxPool3d(5, stride=5)
+
+        # Step 3: Flatten and dense layer
+        self.flatten = nn.Flatten()
+        self.dense1 = nn.Linear(1478400, 128) #???
+
+        # Step 5: Final Dense layer, softmax
+        self.dense2 = nn.Linear(128, 2)
+        self.softmax = nn.Softmax(dim=1)
+        
+    def forward(self, x):
+        #print("Forward pass...")
+        #print("Input shape:", x.shape)
+        torchact['input_1'] = x
+        out = self.conv(x)
+        out = self.relu(out)
+        #print("After Conv+Relu:", out.shape)
+        torchact['conv3d'] = out
+        out = self.pool(out)
+        #print("After Conv:", out.shape)
+        #print("After Pooling:", out.shape)
+        torchact['max_pooling3d'] = out
+        out = torch.flatten(out, start_dim=1)
+        #print("After Flattening:", out.shape)
+        torchact['flatten'] = out
+        out = self.dense1(out)
+        #print("After Dense (1):", out.shape)
+        out = self.relu(out)
+        #print("After Dense+Relu:", out.shape)
+        torchact['dense'] = out
+        out = self.dense2(out)
+        #print("After Dense:", out.shape)
+        out = self.softmax(out)
+        #print("After Dense+Softmax:", out.shape)
+        torchact['dense_1'] = out
         
         return out
 
@@ -183,12 +237,6 @@ torchy.dense1.weight.data = torch.from_numpy(np.transpose(weights[2]))
 torchy.dense1.bias.data = torch.from_numpy(weights[3])
 torchy.dense2.weight.data = torch.from_numpy(np.transpose(weights[4]))
 torchy.dense2.bias.data = torch.from_numpy(weights[5])
-
-#print("\nChecking that the weights are the same?")
-#print("Torch")
-#print(torchy.conv.weight.data)
-#print("Keras")
-#print(np.transpose(weights[0]))
 
 # GPU MODE ENGAGE
 #print(torch.cuda.get_device_name(0))
@@ -309,7 +357,8 @@ print("Keras prediction:", model.predict(image)[0])
 x_arr = []
 tp = []
 kp = []
-for i in range (len(path)):
+#for i in range (len(path)):
+for i in range(len(path)):
     # Incredibly dirty way of preparing this data
     image = np.asarray(nib.load(path[i]).get_fdata(dtype='float32'))
     image = ne.organiseADNI(image, w, h, d, strip=strip_mode)
@@ -323,13 +372,47 @@ for i in range (len(path)):
     pred = torchy(x)
     pred_read = pred.detach().cpu().numpy()
     preds = np.argmax(pred_read, axis=1)
-    print("\nTorch prediction:", pred_read[0], "| (", preds[0], "vs. actual:", labels[i], ")")
-    tp.append(preds[0])
+    #print("\nTorch prediction:", pred_read[0], "| (", preds[0], "vs. actual:", labels[i], ")")
+    #tp.append(preds[0])
+    activations = keract.get_activations(model, image)
+    
+    # Transpose and detach from gpu
+    #print("Fixing dims")
+    torchact['input_1'] = np.transpose((torchact['input_1'].detach().numpy()), (0,2,3,4,1))
+    torchact['conv3d'] = np.transpose((torchact['conv3d'].detach().numpy()), (0,2,3,4,1))
+    torchact['max_pooling3d'] = np.transpose((torchact['max_pooling3d'].detach().numpy()), (0,2,3,4,1))
+    torchact['flatten'] = torchact['flatten'].detach().numpy()
+    torchact['dense'] = torchact['dense'].detach().numpy()
+    torchact['dense_1'] = torchact['dense_1'].detach().numpy()
+    '''
+    print("\nKERAS ACTIVATIONS:")
+    [print(k, '->', v.shape, '- Numpy array') for (k, v) in activations.items()]
+    print("\nTORCH ACTIVATIONS:")
+    [print(k, '->', v.shape, '- Numpy array') for (k, v) in torchact.items()]
+    '''
+    steps = ['input_1', 'conv3d', 'max_pooling3d', 'flatten', 'dense', 'dense_1']
+    
+    print("\nFinding diff in models.")
+    for step in steps:
+        diff = activations[step]-torchact[step]
+        meanloss = np.mean(diff)
+        nonzero = np.mean(diff[np.nonzero(diff)])
+        print("Layer", step, "| Mean loss:", meanloss, "( Non-zero:", nonzero, ")")
+    
+    #print("\nKeras penult:", activations[steps[4]][0, 10:15])
+    #print("Torch penult:", torchact[steps[4]][0, 10:15])
+    print("Keras final:", activations[steps[5]])
+    print("Torch final:", torchact[steps[5]])
+    print("(Actual label was ", labels[i], ")", sep='')
+    
+    '''
     kerpred = model.predict(image)
     kerpreddy = np.argmax(kerpred, axis=1)
     print("Keras prediction:", kerpred[0], "| (", kerpreddy[0], "vs. actual:", labels[i], ")")
     kp.append(kerpreddy[0])
-    
+    '''
+
+'''
 print("Torch:", tp)
 print("Actual:", labels)
 corr = 0
@@ -340,6 +423,7 @@ for i in range(0, len(labels)):
     total += 1
 acc = (corr/total)*100
 print("Rough acc: ", acc, "%", sep='')
+'''
 
 #print("Image shape:", x.shape)
 #print("Image shape:", x.shape)

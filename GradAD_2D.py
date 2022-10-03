@@ -114,7 +114,7 @@ class TorchBrain2D(nn.Module): # For more complex model
         self.dense1 = nn.Linear(42240, 128) #???
 
         # Step 5: Final Dense layer, softmax
-        self.dense2 = nn.Linear(128, class_no)
+        self.dense2 = nn.Linear(12, class_no8)
         self.softmax = nn.Softmax(dim=1)
         
     def forward(self, x):
