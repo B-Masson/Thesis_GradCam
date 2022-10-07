@@ -1,7 +1,8 @@
+# Can you solve all my problems, O Activation Wizard?
 import tensorflow as tf
 from tensorflow import keras
 import os
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2' 
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3' 
 from keras.models import load_model
 from tensorflow.keras.utils import to_categorical
 import numpy as np
@@ -13,27 +14,49 @@ import GPUtil
 import sys
 from collections import Counter
 from tensorflow.keras.models import Model
+tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
 print("Imports working.")
 
-# Get da model
-classy = "AD"
+# Flags
+display_mode = True # Print out all the weight info
+single = True
+memory_mode = False # Print out memory summaries
+strip_mode = False
+basic_mode = True
+saving = True
 
+# Memory setup
+if memory_mode:
+    torch.backends.cudnn.benchmark = True
+    torch.backends.cudnn.enabled = True
+    GPUtil.showUtilization()
+
+priority_slices = [56, 57, 58, 64, 75, 85, 88, 89, 96]
+slice_range = np.arange(50, 100)
 # Just pick a single model for now
-model_name = "Models/ADModel_NEO_V5-basicvalid.h5"
-model = load_model(model_name)
-print("Keras model loaded in.")
+#modelnum = 58
+#model_name = "Models/2DSlice_V2-prio/model-"+str(modelnum)+".h5"
+model_dir = "Models/2DSlice_V1.5-entire/model-"
+#model = load_model(model_name)
+#print("Keras model loaded in. [", model_name, "]")
 
-print("Compiling...")
-optim = keras.optimizers.Adam(learning_rate=0.001)# , epsilon=1e-3) # LR chosen based on principle but double-check this later
-#model.compile(optimizer=optim, loss='sparse_categorical_crossentropy', metrics=[tf.keras.metrics.BinaryAccuracy()])
-model.compile(optimizer=optim,loss='categorical_crossentropy', metrics=['accuracy'])
+#print("Compiling...")
+#optim = keras.optimizers.Adam(learning_rate=0.001)# , epsilon=1e-3) # LR chosen based on principle but double-check this later
+#model.compile(optimizer=optim, loss='categorical_crossentropy', metrics=[tf.keras.metrics.BinaryAccuracy()])
 
-# Get da input
-class_param = ""
-if classy == "CN":
-    class_param = "-CN"
-imgname = "Directories\\single"+class_param+".txt"
-labname = "Directories\\single"+class_param+"-label.txt"
+# Grab that data now
+print("\nExtracting data")
+scale = 1
+w = (int)(169/scale)
+h = (int)(208/scale)
+d = (int)(179/scale)
+
+if single:
+    imgname = "Directories\\single.txt"
+    labname = "Directories\\single-label.txt"
+else:
+    imgname = "Directories\\test_adni_2_trimmed_images.txt"
+    labname = "Directories\\test_adni_2_trimmed_labels.txt"
 print("Reading from", imgname, "and", labname)
 path_file = open(imgname, "r")
 path = path_file.read()
@@ -47,17 +70,28 @@ label_file.close()
 #labels = to_categorical(labels, num_classes=class_no, dtype='float32')
 #print(path)
 print("Predicting on", len(path), "images.")
+#print(path)
 print("Distribution:", Counter(labels))
+#GPUtil.showUtilization()
+'''
+# Dataset loaders
+def load_img(file): # NO AUG, NO LABEL
+    loc = file.numpy().decode('utf-8')
+    nifti = np.asarray(nib.load(loc).get_fdata())
+    nifti = ne.organiseADNI(nifti, w, h, d, strip=strip_mode)
+    nifti = tf.convert_to_tensor(nifti, np.float32)
+    return nifti
 
-w = 169
-h = 208
-d = 179
+def load_img_wrapper(file):
+    return tf.py_function(load_img, [file], [np.float32])
+'''
 
-# Prepare input
+# Incredibly dirty way of preparing this data
 func = nib.load(path[0])
-img = np.asarray(func.get_fdata(dtype='float32'))
-img = ne.organiseADNI(img, w, h, d, strip=False)
-img = np.expand_dims(img, axis=0)
+image_raw = np.asarray((func).get_fdata(dtype='float32'))
+image_raw = ne.organiseADNI(image_raw, w, h, d, strip=strip_mode)
+lab = to_categorical(labels[0])
+print("Data obtained. Moving on to models...")
 
 # REF CODE START HERE
 # --------------------------------
@@ -133,7 +167,7 @@ class GradCAM:
         # grab the spatial dimensions of the input image and resize
         # the output class activation map to match the input image
         # dimensions
-        print("I HAVE OPTED TO NOT RESIZE SHIT (FOR NOW)")
+        #print("I HAVE OPTED TO NOT RESIZE SHIT (FOR NOW)")
         (w, h) = (image.shape[2], image.shape[1])
         #print("Cam shape:", cam.numpy().shape)
         #heatmap = cv2.resize(cam.numpy(), (w, h))
@@ -167,51 +201,58 @@ class GradCAM:
 # --------------------------------
 # REF CODE END HERE
 
-# Predict and get grad
-print("Image shape:", img.shape)
-print("Class:", labels[0])
-prediction = model.predict(img)
-print("Prediction:", prediction[0])
-i = np.argmax(prediction[0])
+# Vars
+actloc = "Activations/2D/"
+gradloc = "Gradients/2D/"
+depth = 5
+actvolume = np.zeros((167, 206, depth))
+gradvolume = []
+eps=1e-8
 
-#for idx in range(len(model.layers)):
-#    print(model.get_layer(index = idx).name)
-print("Instantiating Grad Map...")
-icam = GradCAM(model, prediction[0], 'conv3d')
-print("Generating heatmap.")
-heatmap = icam.compute_heatmap(img)
-print("Heatmap is shape:", heatmap.shape)
-
-# Try and save it to NIFTI
-new_image = nib.Nifti1Image(heatmap, func.affine)
-nib.save(new_image, "Gradients/testround.nii.gz")
-
-#image = np.squeeze(img, axis=3)
-#image = np.squeeze(image, axis=0)
-#print("Img is:", image.shape)
-#image = (image * 255).astype("uint8")
-#image = cv2.applyColorMap(image, cv2.COLORMAP_BONE)
-#print("Img is:", image.shape)
-'''
-#(heatmap, output) = icam.overlay_heatmap(heatmap, image, alpha=0.5)
-slicerange = range(25, 156, 25)
-print("Time to try and display:")
-for sliceno in slicerange:
-    print("Slice", sliceno)
-    heatmap2d = heatmap[:,:,sliceno]
-    heatmap2d = icam.heatmap_only(heatmap2d, colormap=cv2.COLORMAP_INFERNO)
-    plt.imshow(heatmap2d)
-    plt.show()
+#for slicenum in slice_range:
+for i in range(depth):
+    slicenum = slice_range[i]
+    model_name = model_dir + str(slicenum)
+    model = load_model(model_name)
+    print("Keras model loaded in. [", model_name, "]")
+    #model.summary()
+    #print("Compiling...")
+    optim = keras.optimizers.Adam(learning_rate=0.001)# , epsilon=1e-3) # LR chosen based on principle but double-check this later
+    model.compile(optimizer=optim, loss='categorical_crossentropy', metrics=[tf.keras.metrics.BinaryAccuracy()])
+    
+    # Prep slice
+    image = image_raw[:,:,slicenum]
+    image = np.expand_dims(image, axis=0)
+    #print("Image shape:", image.shape)
+    # Here goes nothing
+    if i == 0:
+        layername = "conv2d"
+    else:
+        layername = "conv2d_"+str(i)
+    print("Instantiating Grad Map...")
+    icam = GradCAM(model, labels[0], layername)
+    print("Generating heatmap.")
+    grad = icam.compute_heatmap(image)
+    print("Heatmap is shape:", grad.shape)
+    # Save slice
+    print("Displaying...")
+    plt.imshow(grad)
+    slicename = gradloc + "class" +str(labels[0]) +"_slice" +str(slicenum) +".png"
+    plt.savefig(slicename)
     plt.clf()
-'''
-'''
-print("Displaying...")
-fig, ax = plt.subplots(1, 3)
-ax[0].imshow(heatmap)
-ax[1].imshow(image)
-ax[2].imshow(output)
-plt.show()
-fig.savefig("Grad_NEO/"+classy+"-map-slice-"+str(modelnum)+".png")
-'''
+    actvolume[:,:,i] = grad
+    '''
+    kerpred = model.predict(image)
+    kerpreddy = np.argmax(kerpred, axis=1)
+    print("Keras prediction:", kerpred[0], "| (", kerpreddy[0], "vs. actual:", labels[i], ")")
+    kp.append(kerpreddy[0])
+    '''
 
-print("All done!")
+#np.swapaxes(actvolume, axis1, axis2)
+print("Activation volume shape:", actvolume.shape)
+new_image = nib.Nifti1Image(actvolume, func.affine)
+nib.save(new_image, "Gradients/2D/AD-flat.nii.gz")
+keras.backend.clear_session()
+print("\nAll done.")
+
+

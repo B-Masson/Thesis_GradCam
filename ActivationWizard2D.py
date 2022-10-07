@@ -20,6 +20,7 @@ import sys
 from collections import Counter
 import keract
 from keract import get_activations
+import KeractAlt as keract2
 print("Imports working.")
 
 # Flags
@@ -36,9 +37,11 @@ if memory_mode:
     GPUtil.showUtilization()
 
 priority_slices = [56, 57, 58, 64, 75, 85, 88, 89, 96]
+slice_range = np.arange(50, 100)
 # Just pick a single model for now
-modelnum = 58
-model_name = "Models/2DSlice_V2-prio/model-"+str(modelnum)+".h5"
+#modelnum = 58
+#model_name = "Models/2DSlice_V2-prio/model-"+str(modelnum)+".h5"
+model_dir = "Models/2DSlice_V1.5-entire/model-"
 model = load_model(model_name)
 print("Keras model loaded in. [", model_name, "]")
 
@@ -92,28 +95,22 @@ print("Data obtained. Mapping to a dataset...")
 x_arr = []
 tp = []
 kp = []
-#for i in range (len(path)):
-for i in range(1):
+saveloc = "Activations/2D/"
+for i in range (len(path)):
+#for i in range(1):
     # Incredibly dirty way of preparing this data
     image = np.asarray(nib.load(path[i]).get_fdata(dtype='float32'))
     image = ne.organiseADNI(image, w, h, d, strip=strip_mode)
     image = image[:,:,modelnum]
-    plt.imshow(image)
-    plt.savefig("Activations\original.png")
     image = np.expand_dims(image, axis=0)
     # Here goes nothing
+    lab = to_categorical(labels[i])
     layername = "conv2d_2"
     print("Getting activations for layer:", layername)
-    activations = get_activations(model, image, auto_compile=True)
-    conv = get_activations(model, image, layer_names=layername)
+    activations = keract2.get_activations(model, image, layer_names=layername)
     #activations = get_activations(model, image, auto_compile=True, layer_names=layername)
     # Print activations shapes
     [print(k, '->', v.shape, '- Numpy array') for (k, v) in activations.items()]
-    saving = True
-    if saving:
-        print("Saving heatmap to /Activations/")
-    else:    
-        print("Displaying conv heatmap:")
     keract.display_activations(activations, save=saving, directory='Activations')
     #keract.display_heatmaps(conv, image, directory='Activations', save=True, fix=True, merge_filters=True)
     '''

@@ -1,10 +1,8 @@
 # Can you solve all my problems, O Activation Wizard?
-# Had to compile it to use sparse loss, for some reason.
 import tensorflow as tf
-tf.compat.v1.disable_eager_execution()
 from tensorflow import keras
 import os
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2' 
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3' 
 from keras.models import load_model
 from tensorflow.keras.utils import to_categorical
 import torch
@@ -23,14 +21,16 @@ from collections import Counter
 import keract
 from keract import get_activations
 import KeractAlt as keract2
+tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
 print("Imports working.")
 
 # Flags
 display_mode = True # Print out all the weight info
-single = False
+single = True
 memory_mode = False # Print out memory summaries
 strip_mode = False
 basic_mode = True
+saving = True
 
 # Memory setup
 if memory_mode:
@@ -38,14 +38,18 @@ if memory_mode:
     torch.backends.cudnn.enabled = True
     GPUtil.showUtilization()
 
-model_name = "Models/ADModel_NEO_V5-basicvalid.h5"
-model = load_model(model_name)
-print("Keras model loaded in. [", model_name, "]")
+priority_slices = [56, 57, 58, 64, 75, 85, 88, 89, 96]
+slice_range = np.arange(50, 100)
+# Just pick a single model for now
+#modelnum = 58
+#model_name = "Models/2DSlice_V2-prio/model-"+str(modelnum)+".h5"
+model_dir = "Models/2DSlice_V1.5-entire/model-"
+#model = load_model(model_name)
+#print("Keras model loaded in. [", model_name, "]")
 
-print("Compiling...")
-optim = keras.optimizers.Adam(learning_rate=0.001)# , epsilon=1e-3) # LR chosen based on principle but double-check this later
-#model.compile(optimizer=optim, loss='sparse_categorical_crossentropy', metrics=[tf.keras.metrics.BinaryAccuracy()])
-model.compile(optimizer=optim,loss='categorical_crossentropy', metrics=['accuracy'])
+#print("Compiling...")
+#optim = keras.optimizers.Adam(learning_rate=0.001)# , epsilon=1e-3) # LR chosen based on principle but double-check this later
+#model.compile(optimizer=optim, loss='categorical_crossentropy', metrics=[tf.keras.metrics.BinaryAccuracy()])
 
 # Grab that data now
 print("\nExtracting data")
@@ -53,7 +57,6 @@ scale = 1
 w = (int)(169/scale)
 h = (int)(208/scale)
 d = (int)(179/scale)
-classNo = 2
 
 if single:
     imgname = "Directories\\single.txt"
@@ -71,7 +74,6 @@ labels = label_file.read()
 labels = labels.split("\n")
 labels = [ int(i) for i in labels]
 label_file.close()
-labs = to_categorical(labels, num_classes=classNo, dtype='float32')
 #labels = to_categorical(labels, num_classes=class_no, dtype='float32')
 #print(path)
 print("Predicting on", len(path), "images.")
@@ -90,49 +92,72 @@ def load_img(file): # NO AUG, NO LABEL
 def load_img_wrapper(file):
     return tf.py_function(load_img, [file], [np.float32])
 '''
-print("Data obtained. Mapping to a dataset...")
 
-x_arr = []
-tp = []
-kp = []
-saveloc = "Activations/3D/"
-#for i in range (len(path)):
-for i in range(1):
-    # Incredibly dirty way of preparing this data
-    func = nib.load(path[i])
-    image = np.asarray(func.get_fdata(dtype='float32'))
-    image = ne.organiseADNI(image, w, h, d, strip=strip_mode)
-    image = np.expand_dims(image, axis=0)
-    # Here goes nothing
-    lab = to_categorical(labels[i])
-    layername = "conv3d"
-    print("Getting activations")
-    activations = keract2.get_activations(model, image, layer_names=layername)
-    [print(k, '->', v.shape, '- Numpy array') for (k, v) in activations.items()]
+# Incredibly dirty way of preparing this data
+image_raw = np.asarray(nib.load(path[0]).get_fdata(dtype='float32'))
+image_raw = ne.organiseADNI(image_raw, w, h, d, strip=strip_mode)
+lab = to_categorical(labels[0])
+print("Data obtained. Moving on to models...")
+
+# Vars
+actloc = "Activations/2D/"
+gradloc = "Gradients/2D/"
+depth = 2
+actvolume = np.zeros((167, 206, depth))
+gradvolume = []
+eps=1e-8
+
+#for slicenum in slice_range:
+for i in range(depth):
+    slicenum = slice_range[i]
+    model_name = model_dir + str(slicenum)
+    model = load_model(model_name)
+    print("Keras model loaded in. [", model_name, "]")
+    #model.summary()
+    #print("Compiling...")
+    optim = keras.optimizers.Adam(learning_rate=0.001)# , epsilon=1e-3) # LR chosen based on principle but double-check this later
+    model.compile(optimizer=optim, loss='categorical_crossentropy', metrics=[tf.keras.metrics.BinaryAccuracy()])
     
+    # Prep slice
+    image = image_raw[:,:,slicenum]
+    image = np.expand_dims(image, axis=0)
+    #print("Image shape:", image.shape)
+    # Here goes nothing
+    if i == 0:
+        layername = "conv2d"
+    else:
+        layername = "conv2d_"+str(i)
+    print("Getting activations for layer:", layername)
+    activations = keract2.get_activations(model, image, layer_names=layername)
+    # Act heatmap
+    #print("Getting heatmap")
+    keract.display_heatmaps(activations, image, directory='.', save=False, fix=True, merge_filters=True)
     gradmap = keract2.gen_heatmaps(activations, image)
     print("The activation map has the following shape:", gradmap[0].shape)
     grad = gradmap[0]
-    
     # Transform this thing
     numer = grad - np.min(grad)
     denom = (grad.max() - grad.min()) + eps
     grad = numer / denom
     grad = (grad * 255).astype("uint8")
-    
-    gslice = grad[:,:,80]
-    plt.imshow(gslice)
-    slicename = saveloc + "image" +str(i) +"_class" +str(labels[i]) +".png"
+    print("Array shape:", grad.shape)
+    # Save slice
+    print("Displaying...")
+    plt.imshow(grad)
+    slicename = actloc + "class" +str(labels[0]) +"_slice" +str(slicenum) +".png"
     plt.savefig(slicename)
-    #plt.show()
-    new_image = nib.Nifti1Image(grad, func.affine)
-    nib.save(new_image, saveloc + "NIFTI/image" +str(i) +"_class" +str(labels[i]) +".nii.gz")
-    #conv = get_activations(model, image, layer_names=layername)
-    #grads = keract.get_gradients_of_activations(model, image, [1], layer_names=layername, output_format='simple')
-    #print("Grads")
-    #[print(k, '->', v.shape, '- Numpy array') for (k, v) in grads.items()]
+    plt.clf()
+    actvolume[:,:,i] = grad
+    '''
+    kerpred = model.predict(image)
+    kerpreddy = np.argmax(kerpred, axis=1)
+    print("Keras prediction:", kerpred[0], "| (", kerpreddy[0], "vs. actual:", labels[i], ")")
+    kp.append(kerpreddy[0])
+    '''
 
-
+#np.swapaxes(actvolume, axis1, axis2)
+print("Activation volume shape:", actvolume.shape)
 keras.backend.clear_session()
 print("\nAll done.")
+
 
