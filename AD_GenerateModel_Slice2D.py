@@ -2,7 +2,7 @@
 # Richard Masson
 # Last use in 2021: October 29th
 print("\nIMPLEMENTATION: 2D Slices")
-print("CURRENT TEST: I don't think this was testing properly before. Trying again on basic.")
+print("CURRENT TEST: Testing that new advanced model hotness.")
 #print("CURRENT TEST: First official test on everything.")
 # TO DO: Model2
 import os
@@ -46,7 +46,7 @@ from datetime import date
 print("Today's date:", date.today())
 
 # Are we in testing mode?
-testing_mode = False
+testing_mode = True
 memory_mode = False
 #limiter = False
 #pure_mode = False
@@ -54,8 +54,9 @@ strip_mode = False
 norm_mode = False
 trimming = True
 maxxing = True # True = use prio slices
-modelname = "ADModel_2DSlice_V2-prio"
-logname = "2DSlice_V2-prio"
+logname = "2DSlice_V6-testing"
+modelname = "ADModel_"+logname
+
 if not testing_mode:
     print("MODELNAME:", modelname)
     print("LOGS CAN BE FOUND UNDER", logname)
@@ -63,10 +64,10 @@ if not testing_mode:
 # Model hyperparameters
 if testing_mode:
     epochs = 1 #Small for testing purposes
-    batches = 1
+    batches = 2
 else:
-    epochs = 25 # JUST FOR NOW
-    batches = 1 # Going to need to fiddle with this over time (balance time save vs. running out of memory)
+    epochs = 15 # JUST FOR NOW
+    batches = 2 # Going to need to fiddle with this over time (balance time save vs. running out of memory)
 
 # Set which slices to use, based on previous findings
 # To-do: I really need to automate this by saving the best values
@@ -149,7 +150,7 @@ countClasses(y_train, "Training")
 print("Number of validation images:", len(x_val))
 countClasses(y_val, "Validation")
 print("Number of testing images:", len(x_test), "\n")
-
+'''
 # Data augmentation functions
 def get_augmentation(patch_size):
     return Compose([
@@ -160,6 +161,16 @@ def get_augmentation(patch_size):
         RandomGamma(gamma_limit=(0.6, 1), p=0) #0.4
     ], p=1) #0.9 #NOTE: Temp not doing augmentation. Want to take time to observe the effects of this stuff
 aug = get_augmentation((w,h,d)) # For augmentations
+'''
+# 2D Augmentation stuff
+import imgaug as ia
+import imgaug.augmenters as iaa
+rotaterand = lambda aug: iaa.Sometimes(0.6, aug)
+elastrand = lambda aug: iaa.Sometimes(0.3, aug)
+seq = iaa.Sequential([
+    rotaterand(iaa.Rotate((-45, 45))),
+    elastrand(iaa.ElasticTransformation(alpha=(0, 0.5), sigma=0.1))
+])
 
 def load_image(file, label):
     loc = file.numpy().decode('utf-8')
@@ -168,9 +179,11 @@ def load_image(file, label):
         nifti = ne.resizeADNI(nifti, w, h, d, stripped=True)
     else:
         nifti = ne.organiseADNI(nifti, w, h, d, strip=strip_mode)
+    # Augmentation
     data = {'image': nifti}
     aug_data = aug(**data)
     nifti = aug_data['image']
+    
     nifti = tf.convert_to_tensor(nifti, np.float32)
     return nifti, label
 
@@ -191,7 +204,7 @@ def load_slice(file, label):
     slice = nifti[:,:,n]
     slice = ne.organiseSlice(slice, w, h, strip=strip_mode)
     # Augmentation
-    # TO DO
+    slice = seq(images=slice)
     slice = tf.convert_to_tensor(slice, np.float32)
     return slice, label
 
@@ -221,7 +234,7 @@ def load_testslice_wrapper(file):
 # This needs to exist in order to allow for us to use an accuracy metric without getting weird errors
 def fix_shape(images, labels):
     images.set_shape([None, w, h, 1])
-    labels.set_shape([1, classNo])
+    labels.set_shape([images.shape[0], classNo])
     return images, labels
 
 def fix_dims(image):
@@ -257,7 +270,7 @@ def gen_basic_model(width, height, channels, classes=3): # Baby mode
     # Initial build version - no explicit Sequential definition
     inputs = keras.Input((width, height, channels))
 
-    x = layers.Conv2D(filters=32, kernel_size=5, padding='valid', activation="relu", kernel_regularizer =tf.keras.regularizers.l2( l=0.01), data_format="channels_last")(inputs) # Layer 1: Simple 32 node start
+    x = layers.Conv2D(filters=32, kernel_size=5, padding='same', activation="relu", kernel_regularizer =tf.keras.regularizers.l2( l=0.01), data_format="channels_last")(inputs) # Layer 1: Simple 32 node start
     x = layers.MaxPool2D(pool_size=5, strides=5)(x) # Usually max pool after the conv layer
 
     x = layers.Flatten()(x)
@@ -268,6 +281,42 @@ def gen_basic_model(width, height, channels, classes=3): # Baby mode
     # Define the model.
     model = keras.Model(inputs, outputs, name="3DCNN_Basic")
 
+    return model
+
+def gen_advanced_2d_model(width=169, height=208, depth=179, classes=2):
+    modelname = "Advanced-2D-CNN"
+    #print(modelname)
+    inputs = keras.Input((width, height, depth))
+    
+    x = layers.Conv2D(filters=8, kernel_size=5, padding='valid', activation='relu', data_format="channels_last")(inputs)
+    x = layers.BatchNormalization()(x)
+    x = layers.MaxPool2D(pool_size=2, strides=2)(x)
+    x = layers.Dropout(0.1)(x)
+    
+    x = layers.Conv2D(filters=16, kernel_size=5, padding='valid', activation='relu', data_format="channels_last")(x)
+    x = layers.BatchNormalization()(x)
+    x = layers.MaxPool2D(pool_size=2, strides=2)(x)
+    x = layers.Dropout(0.1)(x)
+    
+    x = layers.Conv2D(filters=32, kernel_size=5, padding='valid', activation='relu', data_format="channels_last")(x)
+    x = layers.BatchNormalization()(x)
+    x = layers.MaxPool2D(pool_size=2, strides=2)(x)
+    x = layers.Dropout(0.1)(x)
+    
+    x = layers.Conv2D(filters=64, kernel_size=5, padding='valid', activation='relu', data_format="channels_last")(x)
+    x = layers.BatchNormalization()(x)
+    x = layers.MaxPool2D(pool_size=2, strides=2)(x)
+    x = layers.Dropout(0.1)(x)
+    
+    x = layers.Flatten()(x)
+    x = layers.Dropout(0.3)(x)
+    x = layers.Dense(units=128, activation='relu')(x)
+    x = layers.Dense(units=64, activation='relu')(x)
+    
+    outputs = layers.Dense(units=classes, activation='softmax')(x)
+    
+    model = keras.Model(inputs, outputs, name=modelname)
+    
     return model
 
 # Build model.
@@ -281,7 +330,7 @@ class CustomCallback(keras.callbacks.Callback):
         print("Epoch {}/{} > ".format(epoch+1, epochs))
         #if (epoch+1) == epochs:
         #    print('')
-
+'''
 # Setting class weights
 from sklearn.utils import class_weight
 
@@ -292,7 +341,7 @@ for index,value in enumerate(class_weights):
     class_weight_dict[index] = value
 #class_weight_dict = {i:w for i,w in enumerate(class_weights)}
 print("Class weight distribution will be:", class_weight_dict)
-
+'''
 # Run the model
 print("\nGenerating models...")
 
@@ -305,22 +354,33 @@ print("\nGenerating models...")
 # Array of models are then entered into the scikit ensemble class, 'soft' voting, with weights set to an array of validation accuracies
 # Can then evaluate on test data
 
-channels = 1 # Replicating into 3 channels is proving annoying
+channels = 1 # Treat as greyscale (which it is)
 
 def generateModels(start, stop):
     models = []
     weights = []
+    epochdict = {}
     for i in range(start, stop):
         global n
         n = i
         print("Fitting for slice", n, "out of", stop-1)
 
         # Set up a model
-        model = gen_basic_model(w, h, channels, classes=classNo)
-        model.compile(optimizer=optim, loss='categorical_crossentropy', metrics=['accuracy']) #metrics=[tf.keras.metrics.BinaryAccuracy()]
+        model = gen_advanced_2d_model(w, h, channels, classes=classNo)
+        if i == start:
+            model.summary()
+        if batch_size > 1:
+            metric = 'binary_accuracy'
+        else:
+            metric = 'accuracy'
+        if metric == 'binary_accuracy':
+            model.compile(optimizer=optim, loss='categorical_crossentropy', metrics=[tf.keras.metrics.BinaryAccuracy()]) #metrics=['accuracy']) #metrics=[tf.keras.metrics.BinaryAccuracy()]
+        else:
+            model.compile(optimizer=optim, loss='categorical_crossentropy', metrics=['accuracy']) #metrics=[tf.keras.metrics.BinaryAccuracy()]
+        print("Metric being used:", metric)
         
         # Checkpointing & Early Stopping
-        es = EarlyStopping(monitor='val_loss', patience=5, restore_best_weights=True) # Temp at 30 to circumvent issue with first epoch behaving weirdly
+        es = EarlyStopping(monitor='val_'+metric, patience=5, restore_best_weights=True)
         checkpointname = "/2d_V1_checkpoints/slice" +str(n) +".h5"
         if testing_mode:
             checkpointname = "2d_V1_checkpoints_testing.h5"
@@ -335,19 +395,19 @@ def generateModels(start, stop):
         if testing_mode:
             history = model.fit(train_set, validation_data=validation_set, epochs=epochs, verbose=0, callbacks=[CustomCallback()]) # DON'T SPECIFY BATCH SIZE, CAUSE INPUT IS ALREADY A BATCHED DATASET
         else:
-            history = model.fit(train_set, validation_data=validation_set, epochs=epochs, verbose=0, shuffle=True)
-            # Note: I have TEMPORARILY REMOVED CALLBACKS
-            # DEAR ME, I HAVE REMOVED THE CLASS WEIGHTING STUFF. FOR NOW.
+            history = model.fit(train_set, validation_data=validation_set, epochs=epochs, verbose=0, callbacks=[es], shuffle=True)
         modelname = "model-"+str(n)
         models.append(tuple((modelname, model)))
         print(history.history)
-        weight = history.history['val_accuracy'][-1]
+        weight = history.history['val_'+metric][-1]
         weights.append(weight)
-    return models, weights
+        epochdict[modelname] = len(history.history['val_loss'])
+    return models, weights, epochdict
 
 def generatePriorityModels(slices):
     models = []
     weights = []
+    epochdict = {}
     for i in range(len(slices)):
         global n
         n = slices[i]
@@ -356,11 +416,19 @@ def generatePriorityModels(slices):
         display.insert(i, "->")
         print(display)
         # Set up a model
-        model = gen_basic_model(w, h, channels, classes=classNo)
-        model.compile(optimizer=optim, loss='categorical_crossentropy', metrics=['accuracy']) #metrics=[tf.keras.metrics.BinaryAccuracy()]
+        model = gen_advanced_2d_model(w, h, channels, classes=classNo)
+        if batch_size > 1:
+            metric = 'binary_accuracy'
+        else:
+            metric = 'accuracy'
+        if metric == 'binary_accuracy':
+            model.compile(optimizer=optim, loss='categorical_crossentropy', metrics=[tf.keras.metrics.BinaryAccuracy()]) #metrics=['accuracy']) #metrics=[tf.keras.metrics.BinaryAccuracy()]
+        else:
+            model.compile(optimizer=optim, loss='categorical_crossentropy', metrics=['accuracy']) #metrics=[tf.keras.metrics.BinaryAccuracy()]
+        print("Metric being used:", metric)
         
         # Checkpointing & Early Stopping
-        es = EarlyStopping(monitor='val_loss', patience=5, restore_best_weights=True) # Temp at 30 to circumvent issue with first epoch behaving weirdly
+        es = EarlyStopping(monitor='val_'+metric, patience=5, restore_best_weights=True)
         checkpointname = "/2d_V1_checkpoints/slice" +str(n) +".h5"
         if testing_mode:
             checkpointname = "2d_V1_checkpoints_testing.h5"
@@ -373,34 +441,33 @@ def generatePriorityModels(slices):
         
         # Fitting time
         if testing_mode:
-            history = model.fit(train_set, validation_data=validation_set, epochs=epochs, verbose=0, callbacks=[CustomCallback()]) # DON'T SPECIFY BATCH SIZE, CAUSE INPUT IS ALREADY A BATCHED DATASET
+            history = model.fit(train_set, validation_data=validation_set, epochs=epochs) # DON'T SPECIFY BATCH SIZE, CAUSE INPUT IS ALREADY A BATCHED DATASET
         else:
-            history = model.fit(train_set, validation_data=validation_set, epochs=epochs, verbose=0, callbacks=[es, tb], shuffle=True)
-            # Note: I have TEMPORARILY REMOVED CHECKPOINTS
+            history = model.fit(train_set, validation_data=validation_set, epochs=epochs, verbose=0, callbacks=[es], shuffle=True)
         modelname = "model-"+str(n)
         models.append(tuple((modelname, model)))
         print(history.history)
-        weight = history.history['val_accuracy'][-1]
+        weight = history.history['val_'+metric][-1]
         weights.append(weight)
-    return models, weights
+        epochdict[modelname] = len(history.history['val_loss'])
+    return models, weights, epochdict
 
 startpoint = 50 # According to SelectSlices findings
-endpoint = 100 # # Remember, it will end at n-1
+endpoint = 101 # # Remember, it will end at n-1
 # and the after, do 100-157
 #if testing_mode:
 if testing_mode:
-    startpoint = 95
-    endpoint = 100
+    startpoint = 101
+    endpoint = 151
 
 tic = perf_counter()
 
 if maxxing:
-    model_list, weights = generatePriorityModels(priority_slices)
+    model_list, weights, epochdict = generatePriorityModels(priority_slices)
 else:
-    model_list, weights = generateModels(startpoint, endpoint)
+    model_list, weights, epochdict = generateModels(startpoint, endpoint)
 
 toc = perf_counter()
-
 #print("Validation accuracies:")
 wcount = []
 wcount = startpoint
@@ -517,10 +584,13 @@ print(f"Accuracy of Hard Voting: {accuracy_score(Y_test, hv_predictions)}")
 
 # Save models
 print("Attempting to save this big list of models.")
-if not os.path.isdir(logname):
-    os.mkdir(logname)
+#if not os.path.isdir(logname):
+#    os.mkdir(logname)
+#for model in model_list:
+#    model[1].save(logname+"/"+model[0]+".h5")
 for model in model_list:
-    model[1].save(logname+"/"+model[0]+".h5")
+    model[1].save_weights("/scratch/mssric004/SliceCheckpointsPt2/"+model[0]+".h5")
+
 
 toc_total = perf_counter()
 total_seconds = (int) (toc_total-tic_total)
@@ -529,4 +599,5 @@ total_time = datetime.timedelta(seconds=(total_seconds))
 train_time = datetime.timedelta(seconds=train_seconds)
 percen = (int)(train_seconds/total_seconds*100)
 
-print("Done. (Total time:", total_time, "- Training time:", train_time, ">", percen)
+print("Done. Epoch counts:", epochdict)
+print("Total time:", total_time, "- Training time:", train_time, ">", percen)

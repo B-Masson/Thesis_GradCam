@@ -105,7 +105,6 @@ gradloc = "Gradients/2D/"
 depth = 2
 actvolume = np.zeros((167, 206, depth))
 gradvolume = []
-eps=1e-8
 
 #for slicenum in slice_range:
 for i in range(depth):
@@ -137,7 +136,7 @@ for i in range(depth):
     grad = gradmap[0]
     # Transform this thing
     numer = grad - np.min(grad)
-    denom = (grad.max() - grad.min()) + eps
+    denom = (grad.max() - grad.min()) + (1e-8)
     grad = numer / denom
     grad = (grad * 255).astype("uint8")
     print("Array shape:", grad.shape)

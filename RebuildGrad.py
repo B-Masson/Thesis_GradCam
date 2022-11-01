@@ -204,8 +204,10 @@ class GradCAM:
 # Vars
 actloc = "Activations/2D/"
 gradloc = "Gradients/2D/"
-depth = 5
-actvolume = np.zeros((167, 206, depth))
+depth = len(slice_range)
+#depth = 30
+testvolume = np.zeros((169, 208))
+actvolume = np.zeros((167, 206))
 gradvolume = []
 eps=1e-8
 
@@ -222,6 +224,7 @@ for i in range(depth):
     
     # Prep slice
     image = image_raw[:,:,slicenum]
+    testvolume = np.dstack((testvolume, image))
     image = np.expand_dims(image, axis=0)
     #print("Image shape:", image.shape)
     # Here goes nothing
@@ -235,23 +238,31 @@ for i in range(depth):
     grad = icam.compute_heatmap(image)
     print("Heatmap is shape:", grad.shape)
     # Save slice
-    print("Displaying...")
     plt.imshow(grad)
     slicename = gradloc + "class" +str(labels[0]) +"_slice" +str(slicenum) +".png"
     plt.savefig(slicename)
     plt.clf()
-    actvolume[:,:,i] = grad
+    actvolume = np.dstack((actvolume, grad))
     '''
     kerpred = model.predict(image)
     kerpreddy = np.argmax(kerpred, axis=1)
     print("Keras prediction:", kerpred[0], "| (", kerpreddy[0], "vs. actual:", labels[i], ")")
     kp.append(kerpreddy[0])
     '''
+#Maybe make it smaller?
+actvolume = actvolume.astype("uint8")
+testvolume = testvolume.astype("uint8")
 
-#np.swapaxes(actvolume, axis1, axis2)
+# Save stuff
 print("Activation volume shape:", actvolume.shape)
 new_image = nib.Nifti1Image(actvolume, func.affine)
-nib.save(new_image, "Gradients/2D/AD-flat.nii.gz")
+nibname = "Gradients/2D/AD-flat.nii.gz"
+print("Saving volume to", nibname)
+nib.save(new_image, nibname)
+#test_image = nib.Nifti1Image(testvolume, func.affine)
+#nib.save(test_image, "Gradients/2D/TEST.nii.gz")
+#plt.imshow(actvolume[:,:,1])
+#plt.show()
 keras.backend.clear_session()
 print("\nAll done.")
 

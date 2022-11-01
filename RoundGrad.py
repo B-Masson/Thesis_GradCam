@@ -15,8 +15,11 @@ from collections import Counter
 from tensorflow.keras.models import Model
 print("Imports working.")
 
+subsect = [50, 101]
+sub = False
+
 # Get da model
-classy = "AD"
+classy = "CN"
 
 # Just pick a single model for now
 model_name = "Models/ADModel_NEO_V5-basicvalid.h5"
@@ -183,8 +186,13 @@ heatmap = icam.compute_heatmap(img)
 print("Heatmap is shape:", heatmap.shape)
 
 # Try and save it to NIFTI
-new_image = nib.Nifti1Image(heatmap, func.affine)
-nib.save(new_image, "Gradients/testround.nii.gz")
+if sub:
+    heatmap = heatmap[:,:,subsect[0]:subsect[1]]
+    new_image = nib.Nifti1Image(heatmap, func.affine)
+    nib.save(new_image, "Gradients/3D/"+classy+"-round-sub.nii.gz")
+else:
+    new_image = nib.Nifti1Image(heatmap, func.affine)
+    nib.save(new_image, "Gradients/3D/CN-round.nii.gz")
 
 #image = np.squeeze(img, axis=3)
 #image = np.squeeze(image, axis=0)

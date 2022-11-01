@@ -3,10 +3,11 @@
 # Info: Trying to fix the model since I'm convinced it's scuffed.
 # Last use in 2021: October 29th
 print("\nIMPLEMENTATION: EX 2D")
-print("2D results, Mode 1.")
+desc = "2D advanced model - CN vs. MCI"
+print(desc)
 import os
-import subprocess as sp
-from time import perf_counter # Memory shit
+#import subprocess as sp
+from time import perf_counter
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2' 
 import sys
 import nibabel as nib
@@ -23,34 +24,19 @@ from tensorflow.keras import layers
 from tensorflow.python.keras.callbacks import EarlyStopping, ModelCheckpoint, TensorBoard
 from tensorflow.keras.utils import to_categorical
 from tensorflow.keras.regularizers import l2
-#print("Importing matplotlib.")
-#import matplotlib
-#matplotlib.use('agg')
-#import matplotlib.pyplot as plt
-#import matplotlib as plt
+import sys
 import random
 import datetime
 from collections import Counter
-from volumentations import * # OI, WE NEED TO CITE VOLUMENTATIONS NOW
+from volumentations import *
 print("Imports working.")
-
+if tf.test.gpu_device_name():
+    print('Default GPU Device: {}'.format(tf.test.gpu_device_name()))
+else:
+    print("GPU device not detected.")
 tic_total = perf_counter()
 
-'''
-# Memory shit
-def gpu_memory_usage(gpu_id):
-    command = f"nvidia-smi --id={gpu_id} --query-gpu=memory.used --format=csv"
-    output_cmd = sp.check_output(command.split())
-    
-    memory_used = output_cmd.decode("ascii").split("\n")[1]
-    # Get only the memory part as the result comes as '10 MiB'
-    memory_used = int(memory_used.split()[0])
 
-    return memory_used
-# The gpu you want to check
-gpu_id = 0
-initial_memory_usage = gpu_memory_usage(gpu_id)
-'''
 # Attempt to better allocate memory.
 
 gpus = tf.config.experimental.list_physical_devices('GPU')
@@ -71,10 +57,13 @@ limiter = False
 pure_mode = False
 strip_mode = False
 norm_mode = False
-trimming = False
+curated = False
+trimming = True
 bad_data = False
-#modelname = "ADModel_EX_2D_V2"
-logname = "EX_2D_V2-mode1"
+
+
+
+logname = "EX_2D_V6-MCI"
 modelname = "ADModel_"+logname
 if not testing_mode:
     if not pure_mode:
@@ -84,10 +73,10 @@ if not testing_mode:
 # Model hyperparameters
 if testing_mode or pure_mode:
     epochs = 1 #Small for testing purposes
-    batches = 1
+    batch_size = 1
 else:
-    epochs = 25 # JUST FOR NOW
-    batches = 1 # Going to need to fiddle with this over time (balance time save vs. running out of memory)
+    epochs = 30
+    batch_size = 2 # Going to need to fiddle with this over time (balance time save vs. running out of memory)
 
 # Define image size (lower image resolution in order to speed up for broad testing)
 if testing_mode:
@@ -96,17 +85,17 @@ elif pure_mode:
     scale = 2
 else:
     scale = 1 # For now
-w = int(208/scale)
-h = int(240/scale)
-d = int(256/scale)
+w = int(169/scale)
+h = int(208/scale)
+d = int(179/scale)
 
 # Prepare parameters for fetching the data
 modo = 1 # 1 for CN/MCI, 2 for CN/AD, 3 for CN/MCI/AD, 4 for weird AD-only, 5 for MCI-only
 if modo == 3 or modo == 4:
-    print("Setting for 3 classes")
+    #print("Setting for 3 classes")
     classNo = 3 # Expected value
 else:
-    print("Setting for 2 classes")
+    #print("Setting for 2 classes")
     classNo = 2 # Expected value
 if testing_mode: # CHANGIN THINGS UP
 	filename = ("Directories/test_adni_" + str(modo)) # CURRENTLY AIMING AT TINY ZONE
@@ -154,35 +143,36 @@ labels = labels.split("\n")
 labels = [ int(i) for i in labels]
 label_file.close()
 print("Data distribution:", Counter(labels))
-print("ClassNo:", classNo)
-#print(labels)
 labels = to_categorical(labels, num_classes=classNo, dtype='float32')
-#print("Categorical shape:", labels[0].shape)
-print("Ensuring everything is equal length:", len(path), "&", len(labels))
 print("\nOBTAINED DATA. (Scaling by a factor of ", scale, ")", sep='')
 
 # Split data
+rar = 0 # Random state seed
+'''
 if pure_mode:    
     x_train, y_train = shuffle(path, labels, random_state=0)
     x_test = x_train
     y_test = y_train
 else:
-    if testing_mode:
-        x_train, x_val, y_train, y_val = train_test_split(path, labels, test_size=0.5, stratify=labels, shuffle=True) # 50/50 (for eventual 50/25/25)
-    else:
-        if limiter:
-            path, path_discard, labels, labels_discard = train_test_split(path, labels, stratify=labels, test_size=0.9)
-            del path_discard
-            del labels_discard
-            epochs = min(epochs,2)
-        x_train, x_val, y_train, y_val = train_test_split(path, labels, stratify=labels, shuffle=True) # Defaulting to 75 train, 25 val/test. Also shuffle=true and stratifytrue.
-    if testing_mode:
-        x_val, x_test, y_val, y_test = train_test_split(x_val, y_val, stratify=y_val, test_size=0.5) # Don't stratify test data, and just split 50/50.
-    else:
-        x_val, x_test, y_val, y_test = train_test_split(x_val, y_val, stratify=y_val, test_size=0.2) # 70/30 val/test
+'''
+if testing_mode:
+    x_train, x_val, y_train, y_val = train_test_split(path, labels, test_size=0.5, stratify=labels, random_state=rar, shuffle=True) # 50/50 (for eventual 50/25/25)
+else:
+    '''
+    if limiter:
+        path, path_discard, labels, labels_discard = train_test_split(path, labels, stratify=labels, test_size=0.9)
+        del path_discard
+        del labels_discard
+        epochs = min(epochs,2)
+    '''
+    x_train, x_val, y_train, y_val = train_test_split(path, labels, stratify=labels, random_state=rar, shuffle=True) # Defaulting to 75 train, 25 val/test. Also shuffle=true and stratifytrue.
+if testing_mode:
+    x_val, x_test, y_val, y_test = train_test_split(x_val, y_val, stratify=y_val, test_size=0.5, random_state=rar, shuffle=True) # Just split 50/50.
+else:
+    x_val, x_test, y_val, y_test = train_test_split(x_val, y_val, stratify=y_val, random_state=rar, test_size=0.4, shuffle=True) # 60/40 val/test
 
 if not testing_mode or pure_mode:
-    np.savez_compressed('testing_sub', a=x_test, b=y_test)
+    np.savez_compressed('testing_saved', a=x_test, b=y_test)
 
 # To observe data distribution
 def countClasses(categors, name):
@@ -208,85 +198,32 @@ if memory_mode:
     print(f"Post data aquisition (GPU) Memory used: {latest_gpu_memory - initial_memory_usage} MiB")
 
 # Data augmentation functions
-@tf.function
-def rotate(image):
-    def scipy_rotate(image): # Rotate by random angular amount
-        # define some rotation angles
-        angles = [-5, -3, -2, -1, 0, 0, 1, 2, 3, 5]
-        # pick angles at random
-        angle = random.choice(angles)
-        # rotate image
-        image = ndimage.rotate(image, angle, reshape=False)
-        image[image < 0] = 0
-        image[image > 1] = 1
-        '''
-        # define some rotation angles
-        angles = [-20, -10, -5, 0, 0, 5, 10, 20]
-        # Pick angel at random
-        angle = random.choice(angles)
-        # Rotate on x axis
-        image2 = ndimage.interpolation.rotate(image, angle, mode='nearest', axes=(0, 1), reshape=False)
-        # Generate new angle
-        angle = random.choice(angles)
-        # Roate on y axis
-        image3 = ndimage.interpolation.rotate(image2, angle, mode='nearest', axes=(0, 2), reshape=False)
-        angle = random.choice(angles)
-        # Rotate on z axis
-        image_final = ndimage.interpolation.rotate(image3, angle, mode='nearest', axes=(1, 2), reshape=False)
-        image_final[image_final < 0] = 0
-        image_final[image_final > 1] = 1
-        return image_final
-        '''
-        return image
-
-    augmented_image = tf.numpy_function(scipy_rotate, [image], tf.float32)
-    return augmented_image
-
-def shift(image):
-    def scipy_shift(image):
-        # generate random x shift pixel value
-        x = (int)(random.uniform(-15, 15))
-        # generate random y shift pixel value
-        y = (int)(random.uniform(-15, 15))
-        image = ndimage.interpolation.shift(image, (x, y, 0), mode='nearest')
-        image[image < 0] = 0
-        image[image > 1] = 1
-        return image
-
-    augmented_image = tf.numpy_function(scipy_shift, [image], tf.float32)
-    return augmented_image
 
 def get_augmentation(patch_size):
     return Compose([
-        Rotate((-3, 3), (-3, 3), (-3, 3), p=1), #0.5
+        Rotate((-3, 3), (-3, 3), (-3, 3), p=0.6), #0.5
         #Flip(2, p=1)
-        ElasticTransform((0, 0.06), interpolation=2, p=0.4), #0.1
+        ElasticTransform((0, 0.05), interpolation=2, p=0.3), #0.1
         #GaussianNoise(var_limit=(1, 1), p=1), #0.1
-        RandomGamma(gamma_limit=(0.6, 1), p=0.4) #0.4
-    ], p=0) #0.9 #NOTE: Temp not doing augmentation. Want to take time to observe the effects of this stuff
+        RandomGamma(gamma_limit=(0.6, 1), p=0) #0.4
+    ], p=1) #0.9 #NOTE: Temp not doing augmentation. Want to take time to observe the effects of this stuff
 aug = get_augmentation((w,h,d)) # For augmentations
-
-# NOTE: DEAR ME, I HAVE CHANGED ALL INSTANCES OF FLOAT64 TO FLOAT32
-# THE REASON FOR THIS IS BECAUSE MY NORMALIZE FUNCTION OUTPUTS FLOAT32
 
 def load_image(file, label):
     loc = file.numpy().decode('utf-8')
     nifti = np.asarray(nib.load(loc).get_fdata())
-    #print("where the hell am i")
     if norm_mode:
         nifti = ne.resizeADNI(nifti, w, h, d, stripped=True)
     else:
-        #print("are we doing it?")
         nifti = ne.organiseADNI(nifti, w, h, d, strip=strip_mode)
 
     # Augmentation
     data = {'image': nifti}
     aug_data = aug(**data)
     nifti = aug_data['image']
-    #nifti = nifti[:,:,:,0]
-    #print("We are sending out this:", nifti.shape)
+    
     nifti = tf.convert_to_tensor(nifti, np.float32)
-    #label.set_shape([1]) # For the you-know-what
+
     return nifti, label
 
 def load_val(file, label): # NO AUG
@@ -322,7 +259,7 @@ def load_test_wrapper(file):
 # This needs to exist in order to allow for us to use an accuracy metric without getting weird errors
 def fix_shape(images, labels):
     images.set_shape([None, w, h, d, 1])
-    labels.set_shape([1, classNo])
+    labels.set_shape([images.shape[0], classNo])
     return images, labels
 
 def fix_dims(image):
@@ -331,7 +268,6 @@ def fix_dims(image):
 
 print("Setting up dataloaders...")
 # TO-DO: Augmentation stuff
-batch_size = batches
 # Data loaders
 train = tf.data.Dataset.from_tensor_slices((x_train, y_train))
 if not pure_mode:
@@ -354,20 +290,21 @@ if not pure_mode:
         .map(fix_shape)
         .prefetch(batch_size)
     )
-
+    
 # Model architecture go here
+
 def gen_basic_model(width=208, height=240, depth=256, classes=3): # Baby mode
     # Initial build version - no explicit Sequential definition
     inputs = keras.Input((width, height, depth))
 
     x = layers.SeparableConv2D(filters=32, kernel_size=5, padding='valid', activation="relu", data_format="channels_last")(inputs) # Layer 1: Simple 32 node start
-    x = layers.MaxPool2D(pool_size=10, strides=10)(x) # Usually max pool after the conv layer
+    x = layers.MaxPool2D(pool_size=5, strides=5)(x) # Usually max pool after the conv layer
     #x = layers.BatchNormalization()(x) # Do we bother with this?
     #x = layers.Dropout(0.1)(x) # Apparently there's merit to very light dropout after each conv layer
 
     x = layers.Flatten()(x)
     x = layers.Dense(units=128, activation="relu")(x) # Implement a simple dense layer with double units
-    #x = layers.Dense(units=506, activation="relu")(x)
+    #x = layers.Dense(units=56, activation="relu")(x)
 
 
     outputs = layers.Dense(units=classes, activation="softmax")(x) # Units = no of classes. Also softmax because we want that probability output
@@ -377,6 +314,57 @@ def gen_basic_model(width=208, height=240, depth=256, classes=3): # Baby mode
 
     return model
 
+def gen_basic3dmodel(width=169, height=208, depth=179, classes=2):
+    inputs = keras.Input((width, height, depth, 1))
+    
+    x = layers.Conv3D(filters=16, kernel_size=5, padding='valid', activation='relu')(inputs)
+    x = layers.MaxPool3D(pool_size=10, strides=10)(x)
+    
+    x = layers.Flatten()(x)
+    x = layers.Dense(units=56)(x)
+    
+    outputs = layers.Dense(units=classes, activation='softmax')(x)
+    
+    model = keras.Model(inputs, outputs, name="VeryBasic3DCNN")
+    
+    return model
+
+def gen_advanced_sep_model(width=169, height=208, depth=179, classes=2):
+    modelname = "Advanced-2D-Separable-CNN"
+    print(modelname)
+    inputs = keras.Input((width, height, depth))
+    
+    x = layers.SeparableConv2D(filters=8, kernel_size=5, padding='valid', activation='relu', data_format="channels_last")(inputs)
+    x = layers.BatchNormalization()(x)
+    x = layers.MaxPool2D(pool_size=2, strides=2)(x)
+    x = layers.Dropout(0.1)(x)
+    
+    x = layers.SeparableConv2D(filters=16, kernel_size=5, padding='valid', activation='relu', data_format="channels_last")(x)
+    x = layers.BatchNormalization()(x)
+    x = layers.MaxPool2D(pool_size=2, strides=2)(x)
+    x = layers.Dropout(0.1)(x)
+    
+    x = layers.SeparableConv2D(filters=32, kernel_size=5, padding='valid', activation='relu', data_format="channels_last")(x)
+    x = layers.BatchNormalization()(x)
+    x = layers.MaxPool2D(pool_size=2, strides=2)(x)
+    x = layers.Dropout(0.1)(x)
+    
+    x = layers.SeparableConv2D(filters=64, kernel_size=5, padding='valid', activation='relu', data_format="channels_last")(x)
+    x = layers.BatchNormalization()(x)
+    x = layers.MaxPool2D(pool_size=2, strides=2)(x)
+    x = layers.Dropout(0.1)(x)
+    
+    x = layers.Flatten()(x)
+    x = layers.Dropout(0.3)(x)
+    x = layers.Dense(units=128, activation='relu')(x)
+    x = layers.Dense(units=64, activation='relu')(x)
+    
+    outputs = layers.Dense(units=classes, activation='softmax')(x)
+    
+    model = keras.Model(inputs, outputs, name=modelname)
+    
+    return model
+
 tic = perf_counter()
 
 # Build model.
@@ -384,25 +372,32 @@ if pure_mode: # TEMP
     print("USING BASIC MODEL.")
     model = gen_basic_model(width=w, height=h, depth=d, classes=classNo)
 else:
-    # Also using basic model here because pain
-    model = gen_basic_model(width=w, height=h, depth=d, classes=classNo)
+    print("USING ADVANCED MODEL")
+    model = gen_advanced_sep_model(width=w, height=h, depth=d, classes=classNo)
+    #model = gen_basic3dmodel(width=w, height=h, depth=d, classes=classNo)
 model.summary()
 optim = keras.optimizers.Adam(learning_rate=0.001)# , epsilon=1e-3) # LR chosen based on principle but double-check this later
 #model.compile(optimizer=optim, loss='binary_crossentropy', metrics=['accuracy']) # Temp binary for only two classes
-model.compile(optimizer=optim, loss='categorical_crossentropy', metrics=['accuracy']) #metrics=[tf.keras.metrics.BinaryAccuracy()]
+if batch_size > 1:
+    metric = 'binary_accuracy'
+else:
+    metric = 'accuracy'
+if metric == 'binary_accuracy':
+    model.compile(optimizer=optim, loss='categorical_crossentropy', metrics=[tf.keras.metrics.BinaryAccuracy()]) #metrics=['accuracy']) #metrics=[tf.keras.metrics.BinaryAccuracy()]
+else:
+    model.compile(optimizer=optim, loss='categorical_crossentropy', metrics=['accuracy']) #metrics=[tf.keras.metrics.BinaryAccuracy()]
+print("Metric being used:", metric)
 # ^^^^ Temp solution for the ol' "as_list() is not defined on an unknown TensorShape issue"
 # NOTE: LOOK AT THIS AGAIN WHEN DOING 3-WAY CLASS
 
-# Memory
-if memory_mode:
-    latest_gpu_memory = gpu_memory_usage(gpu_id)
-    print(f"Pre train (GPU) Memory used: {latest_gpu_memory - initial_memory_usage} MiB")
-
 # Checkpointing & Early Stopping
-es = EarlyStopping(monitor='val_loss', patience=30, restore_best_weights=False) # Temp at 30 to circumvent issue with first epoch behaving weirdly
+mon = 'val_' +metric
+es = EarlyStopping(monitor=mon, patience=20, restore_best_weights=True) # Temp at 30 to circumvent issue with first epoch behaving weirdly
 checkpointname = "twin_checkpoints.h5"
 if testing_mode:
     checkpointname = "twin_checkpoints_testing.h5"
+localcheck = "/scratch/mssric004/TrueChecks/" + modelname +".ckpt"
+be = ModelCheckpoint(localcheck, monitor=mon, mode='auto', verbose=2, save_weights_only=True, save_best_only=True)
 mc = ModelCheckpoint(checkpointname, monitor='val_loss', mode='min', verbose=2, save_best_only=False) #Maybe change to true so we can more easily access the "best" epoch
 if testing_mode:
     log_dir = "/scratch/mssric004/test_logs/fit/twin/" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
@@ -421,19 +416,8 @@ class CustomCallback(keras.callbacks.Callback):
         print("Epoch {}/{} > ".format(epoch+1, epochs))
         #if (epoch+1) == epochs:
         #    print('')
-    '''
-    def on_test_begin(self, logs=None):
-        keys = list(logs.keys())
-        print("Start testing; got log keys: {}".format(keys))
-    def on_test_end(self, logs=None):
-        keys = list(logs.keys())
-        print("Stop testing; got log keys: {}".format(keys))
-    
-    def on_train_batch_end(self, batch, logs=None):
-        keys = list(logs.keys())
-        print("...Training: end of batch {}; got log keys: {}".format(batch, keys))
-    '''
 
+'''
 # Setting class weights
 from sklearn.utils import class_weight
 
@@ -444,34 +428,33 @@ for index,value in enumerate(class_weights):
     class_weight_dict[index] = value
 #class_weight_dict = {i:w for i,w in enumerate(class_weights)}
 print("Class weight distribution will be:", class_weight_dict)
-
+'''
 # Run the model
-print("Fitting model...")
+print("---------------------------\nFITTING MODEL")
+print("Params:", epochs, "epochs & batch size [", batch_size, "].")
 
 if testing_mode:
     #history = model.fit(x_train, y_train, validation_data=(x_val, y_val), batch_size=batches, epochs=epochs, verbose=0)
-    history = model.fit(train_set, validation_data=validation_set, epochs=epochs, verbose=0, class_weight=class_weight_dict, callbacks=[CustomCallback()]) # DON'T SPECIFY BATCH SIZE, CAUSE INPUT IS ALREADY A BATCHED DATASET
-elif pure_mode:
-    history = model.fit(train_set, epochs=epochs, verbose=0, callbacks=[CustomCallback()])
+    history = model.fit(train_set, validation_data=validation_set, epochs=epochs, shuffle=True) # DON'T SPECIFY BATCH SIZE, CAUSE INPUT IS ALREADY A BATCHED DATASET
 else:
-    #history = model.fit(x_train, y_train, validation_data=(x_val, y_val), batch_size=batches, epochs=epochs, verbose=0, shuffle=True)
-    history = model.fit(train_set, validation_data=validation_set, epochs=epochs, class_weight=class_weight_dict, callbacks=[tb, es], verbose=0, shuffle=True)
-    # REMOVING CHECKPOINTING FOR NOW
-
-if testing_mode:
-    modelname = "ADModel_TWIN_Testing"
-elif pure_mode:
-    modelname = "ADModel_TWIN_Pure_Testing"
-modelname = modelname +".h5"
-try:
-    model.save("/scratch/mssric004/Saved Models/"+modelname)
-except Exception as e:
-    print("Couldn't save model. Reason:", e)
-print(history.history)
+    history = model.fit(train_set, validation_data=validation_set, epochs=epochs, callbacks=[es, be, CustomCallback()], verbose=0, shuffle=True)
+    #history = model.fit(train_set, validation_data=validation_set, epochs=epochs, class_weight=class_weight_dict, callbacks=[tb, es], verbose=0, shuffle=True)
+    # No checkpointing needed here
 
 toc = perf_counter()
 
+if not testing_mode:
+    if not pure_mode:
+        modelname = modelname +".h5"
+        print("Saving model to", modelname)
+        try:
+            model.save("/scratch/mssric004/Saved Models/"+modelname)
+        except Exception as e:
+            print("Couldn't save model. Reason:", e)
+print(history.history)
+
 '''
+# Not doing plots right now
 try:
     plotname = "model"
     if testing_mode:
@@ -499,20 +482,21 @@ try:
 except Exception as e:
     print("Couldn't save plots - rip.\nError:", e)
 '''
-# Memory
-if memory_mode:
-    latest_gpu_memory = gpu_memory_usage(gpu_id)
-    print(f"Post train (GPU) Memory used: {latest_gpu_memory - initial_memory_usage} MiB")
 
 # Readings
-metric = 'accuracy'
 try:
     print("\nAccuracy max:", round(max(history.history[metric])*100,2), "% (epoch", history.history[metric].index(max(history.history[metric])), ")")
-    print("Loss min:", round(min(history.history['loss']),2), "(epoch", history.history['loss'].index(max(history.history['loss'])), ")")
+    print("Loss min:", round(min(history.history['loss']),2), "(epoch", history.history['loss'].index(min(history.history['loss'])), ")")
     print("Validation accuracy max:", round(max(history.history['val_'+metric])*100,2), "% (epoch", history.history['val_'+metric].index(max(history.history['val_'+metric])), ")")
-    print("Val loss min:", round(min(history.history['val_loss']),2), "(epoch", history.history['val_loss'].index(max(history.history['val_loss'])), ")")
+    print("Val loss min:", round(min(history.history['val_loss']),2), "(epoch", history.history['val_loss'].index(min(history.history['val_loss'])), ")")
 except Exception as e:
     print("Cannot print out summary data. Reason:", e)
+
+# Number of epochs trained for
+epochcount = len(history.history['val_loss'])
+
+# Load best checkpoint
+model.load_weights(localcheck)
 
 # Final evaluation
 print("\nEvaluating using test data...")
@@ -576,11 +560,6 @@ print(y_pred[:limit])
 #except Exception as e:
     #print("Couldn't assign test_set_x to a wrapper (for matrix). Error:", e)
 
-# Memory
-if memory_mode:
-    latest_gpu_memory = gpu_memory_usage(gpu_id)
-    print(f"Post evaluation (GPU) Memory used: {latest_gpu_memory - initial_memory_usage} MiB")
-
 toc_total = perf_counter()
 total_seconds = (int) (toc_total-tic_total)
 train_seconds = (int) (toc-tic)
@@ -588,4 +567,4 @@ total_time = datetime.timedelta(seconds=(total_seconds))
 train_time = datetime.timedelta(seconds=train_seconds)
 percen = (int)(train_seconds/total_seconds*100)
 
-print("Done. (Total time:", total_time, "- Training time:", train_time, ">", percen)
+print("Done. Trained for", epochcount, "epochs.\nTotal time:", total_time, "- Training time:", train_time, ">", percen)

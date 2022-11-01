@@ -47,7 +47,7 @@ from datetime import date
 print("Today's date:", date.today())
 
 # Are we in testing mode?
-testing_mode = False
+testing_mode = True
 memory_mode = False
 limiter = False
 pure_mode = False
@@ -57,7 +57,7 @@ curated = False
 trimming = True
 bad_data = False
 #modelname = "ADModel_2DK_v1-bad-data" #Next in line: ADMODEL_NEO_v1.3
-logname = "SliceK_V2-prio" #Neo_V1.3
+logname = "SliceK_V3-trial" #Neo_V1.3
 modelname = "ADModel_"+logname
 if not testing_mode:
     print("MODELNAME:", modelname)
@@ -68,7 +68,7 @@ if testing_mode:
     epochs = 1 #Small for testing purposes
     batch_size = 1
 else:
-    epochs = 25 # JUST FOR NOW
+    epochs = 30 # JUST FOR NOW
     batch_size = 1 # Going to need to fiddle with this over time (balance time save vs. running out of memory)
 
 # Set which slices to use, based on previous findings

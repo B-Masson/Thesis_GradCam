@@ -27,7 +27,7 @@ print("Imports working.")
 
 # Flags
 display_mode = True # Print out all the weight info
-single = False
+single = True
 memory_mode = False # Print out memory summaries
 strip_mode = False
 basic_mode = True
@@ -103,6 +103,9 @@ for i in range(1):
     image = np.asarray(func.get_fdata(dtype='float32'))
     image = ne.organiseADNI(image, w, h, d, strip=strip_mode)
     image = np.expand_dims(image, axis=0)
+    print("For:", path[i])
+    print("Class:", labels[i])
+    print("Prediction:", model.predict(image))
     # Here goes nothing
     lab = to_categorical(labels[i])
     layername = "conv3d"
@@ -116,7 +119,7 @@ for i in range(1):
     
     # Transform this thing
     numer = grad - np.min(grad)
-    denom = (grad.max() - grad.min()) + eps
+    denom = (grad.max() - grad.min()) + (1e-8)
     grad = numer / denom
     grad = (grad * 255).astype("uint8")
     
@@ -126,7 +129,9 @@ for i in range(1):
     plt.savefig(slicename)
     #plt.show()
     new_image = nib.Nifti1Image(grad, func.affine)
-    nib.save(new_image, saveloc + "NIFTI/image" +str(i) +"_class" +str(labels[i]) +".nii.gz")
+    saveto = saveloc + "Full/image" +str(i) +"_class" +str(labels[i]) +".nii.gz"
+    nib.save(new_image, saveto)
+    print("Saved to", saveto)
     #conv = get_activations(model, image, layer_names=layername)
     #grads = keract.get_gradients_of_activations(model, image, [1], layer_names=layername, output_format='simple')
     #print("Grads")
