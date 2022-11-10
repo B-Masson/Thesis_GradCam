@@ -367,7 +367,7 @@ def normalize_std(image_data, mean=231, std=458):
     return image_data
 
 # Resize the data to some uniform amount so it actually fits into a training model
-def resize(image_data, w=128, h=128, d=64):
+def resize(image_data, w=169, h=208, d=179):
     # Get current dimensions
     width = image_data.shape[0]
     height = image_data.shape[1]
@@ -379,6 +379,7 @@ def resize(image_data, w=128, h=128, d=64):
     #length_factor = 1
     # Resize using factors
     image_data = ndimage.zoom(image_data, (width_factor, height_factor, depth_factor), order=1)
+    image_data = np.expand_dims(image_data, axis=-1)
     return image_data
 
 # Not sure what version this is. Possibly for the ADNI data?
@@ -457,12 +458,13 @@ def cropSlice(data, cropw=169, croph=208, stripped=False):
     return data
 
 def organiseImage(data, w, h, d):
-    data = normalize(data)
+    data = normalize_per(data)
     data = resize(data, w, h, d)
     return data
 
 def organiseADNI(data, w, h, d, strip=False):
     data = normalize_per(data) # Current best performing: std. Std gets better results but acts weird sometimes. Per is more reliable I suppose.
+    #normalize, normalize_notrim, normalize_per, or normalize_std
     #print("ADNI dimensions by default:", data.shape)
     data = resizeADNI(data, w, h, d, stripped=strip)
     return data
@@ -480,11 +482,13 @@ def organiseOptimise(data, w, h, d, mode):
     elif mode == 3:
         #print("Standardizing")
         data = normalize_std(data)
+    elif mode == 4:
+        print("NO NORM")
     data = resizeADNI(data, w, h, d, stripped=False)
     return data
 
 def organiseSlice(data, w, h, strip=False):
-    data = normalize_per(data)
+    data = normalize(data)
     data = resizeSlice(data, w, h, stripped=strip)
     #data = np.repeat(data, 3, axis=2) # Replicate it into 3 dimensions
     #print("Data shape:", data.shape)

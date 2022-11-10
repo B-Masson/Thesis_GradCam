@@ -1,9 +1,9 @@
 # Core 3D model implementation
 # Richard Masson
-# Info: Trying to fix the model since I'm convinced it's scuffed.
+# Info: Grabbing the data, my homie.
 # Last use in 2021: October 29th
 print("\nIMPLEMENTATION: NEO")
-desc = "Advanced model. Now on MCI."
+desc = "Advanced model. Re-evaluating aug situation."
 print(desc)
 import os
 #import subprocess as sp
@@ -51,6 +51,8 @@ print("Today's date:", date.today())
 
 # Are we in testing mode?
 testing_mode = False
+# Please set a normalization mode
+norm_setting = 2
 memory_mode = False
 limiter = False
 pure_mode = False
@@ -61,7 +63,7 @@ trimming = True
 bad_data = False
 aug = True
 reg = True
-logname = "NEO_V6-advanced-MCI"
+logname = "NEO_V6-noaug-re"
 modelname = "ADModel_"+logname
 if not testing_mode:
     if not pure_mode:
@@ -70,11 +72,11 @@ if not testing_mode:
 
 # Model hyperparameters
 if testing_mode or pure_mode:
-    epochs = 3 #Small for testing purposes
-    batch_size = 2
+    epochs = 1 #Small for testing purposes
+    batch_size = 3
 else:
-    epochs = 30
-    batch_size = 2 # Going to need to fiddle with this over time (balance time save vs. running out of memory)
+    epochs = 25
+    batch_size = 3 # Going to need to fiddle with this over time (balance time save vs. running out of memory)
 
 # Define image size (lower image resolution in order to speed up for broad testing)
 if testing_mode:
@@ -88,7 +90,7 @@ h = int(208/scale)
 d = int(179/scale)
 
 # Prepare parameters for fetching the data
-modo = 1 # 1 for CN/MCI, 2 for CN/AD, 3 for CN/MCI/AD, 4 for weird AD-only, 5 for MCI-only
+modo = 2 # 1 for CN/MCI, 2 for CN/AD, 3 for CN/MCI/AD, 4 for weird AD-only, 5 for MCI-only
 if modo == 3 or modo == 4:
     #print("Setting for 3 classes")
     classNo = 3 # Expected value
@@ -120,6 +122,7 @@ elif strip_mode:
 if bad_data:
     filename = "Directories/baddata_adni_" + str(modo)
 print("Filepath is", filename)
+print("Norm mode:", norm_setting)
 if curated:
     imgname = "Directories/curated_images.txt"
     labname = "Directories/curated_labels.txt"
@@ -157,23 +160,9 @@ print("\nOBTAINED DATA. (Scaling by a factor of ", scale, ")", sep='')
 
 # Split data
 rar = 0 # Random state seed
-'''
-if pure_mode:    
-    x_train, y_train = shuffle(path, labels, random_state=0)
-    x_test = x_train
-    y_test = y_train
-else:
-'''
 if testing_mode:
     x_train, x_val, y_train, y_val = train_test_split(path, labels, test_size=0.5, stratify=labels, random_state=rar, shuffle=True) # 50/50 (for eventual 50/25/25)
 else:
-    '''
-    if limiter:
-        path, path_discard, labels, labels_discard = train_test_split(path, labels, stratify=labels, test_size=0.9)
-        del path_discard
-        del labels_discard
-        epochs = min(epochs,2)
-    '''
     x_train, x_val, y_train, y_val = train_test_split(path, labels, stratify=labels, random_state=rar, shuffle=True) # Defaulting to 75 train, 25 val/test. Also shuffle=true and stratifytrue.
 if testing_mode:
     x_val, x_test, y_val, y_test = train_test_split(x_val, y_val, stratify=y_val, test_size=0.5, random_state=rar, shuffle=True) # Just split 50/50.
@@ -190,13 +179,9 @@ def countClasses(categors, name):
 
 print("Number of training images:", len(x_train))
 countClasses(y_train, "Training")
-#y_train = np.asarray(y_train)
-if not pure_mode:
-    print("Number of validation images:", len(x_val))
-    countClasses(y_val, "Validation")
-#print("Validation distribution:", Counter(y_val))
+print("Number of validation images:", len(x_val))
+countClasses(y_val, "Validation")
 print("Number of testing images:", len(x_test), "\n")
-#print("Testing distribution:", Counter(y_test), "\n")
 if testing_mode:
     print("Training labels:", y_train)
 print("Label type:", y_train[0].dtype)
@@ -217,7 +202,7 @@ def get_augmentation(patch_size):
     return Compose([
         Rotate((-3, 3), (-3, 3), (-3, 3), p=0.6), #0.5
         #Flip(2, p=1)
-        ElasticTransform((0, 0.05), interpolation=2, p=0.3), #0.1
+        ElasticTransform((0, 0.5), interpolation=2, p=0.3), #0.1
         #GaussianNoise(var_limit=(1, 1), p=1), #0.1
         RandomGamma(gamma_limit=(0.6, 1), p=0) #0.4
     ], p=aug_rate) #0.9 #NOTE: Temp not doing augmentation. Want to take time to observe the effects of this stuff
@@ -230,14 +215,14 @@ def load_image(file, label):
         nifti = ne.resizeADNI(nifti, w, h, d, stripped=True)
     else:
         nifti = ne.organiseADNI(nifti, w, h, d, strip=strip_mode)
-    
+    '''
     # Augmentation
     data = {'image': nifti}
     aug_data = aug(**data)
     nifti = aug_data['image']
-    
+    '''
     nifti = tf.convert_to_tensor(nifti, np.float32)
-
+    
     return nifti, label
 
 def load_val(file, label): # NO AUG
@@ -309,107 +294,6 @@ if not pure_mode:
 # Model architecture go here
 # For consideration: https://www.frontiersin.org/articles/10.3389/fbioe.2020.534592/full#B22
 # Current inspiration: https://ieeexplore.ieee.org/document/7780459 (VGG19)
-def gen_model(width=208, height=240, depth=256, classes=3): # Make sure defaults are equal to image resizing defaults
-    modelname = "OG-CNN"
-    print(modelname)
-    # Initial build version - no explicit Sequential definition
-    inputs = keras.Input((width, height, depth, 1)) # Added extra dimension in preprocessing to accomodate that 4th dim
-
-    x = layers.Conv3D(filters=8, kernel_size=3, strides=1, padding="same", activation="relu")(inputs)
-    x = layers.BatchNormalization()(x)
-    x = layers.MaxPool3D(pool_size=2, strides=2)(x) # Paper conv and BN go together, then pooling
-    #x = layers.Dropout(0.1)(x) # Apparently there's merit to very light dropout after each conv layer
-    
-    # kernel_regularizer=l2(0.01)
-    x = layers.Conv3D(filters=16, kernel_size=3, strides=1, padding="same", activation="relu")(x) #(x)
-    x = layers.BatchNormalization()(x)
-    x = layers.MaxPool3D(pool_size=2, strides=2)(x)
-    #x = layers.Dropout(0.1)(x)
-    # NOTE: RECOMMENTED LOL
-
-    x = layers.Conv3D(filters=32, kernel_size=3, strides=1, padding="same", activation="relu")(x)
-    x = layers.BatchNormalization()(x)
-    x = layers.MaxPool3D(pool_size=2, strides=2)(x)
-    #x = layers.Dropout(0.1)(x)
-    # NOTE: Also commented this one for - we MINIMAL rn
-    
-    x = layers.Conv3D(filters=64, kernel_size=3, strides=1, padding="same", activation="relu")(x)
-    x = layers.BatchNormalization()(x)
-    x = layers.MaxPool3D(pool_size=2, strides=2)(x)
-    #x = layers.Dropout(0.1)(x)
-
-    x = layers.Conv3D(filters=128, kernel_size=3, strides=1, padding="same", activation="relu")(x)
-    x = layers.BatchNormalization()(x)
-    x = layers.MaxPool3D(pool_size=2, strides=2)(x)
-    #x = layers.Dropout(0.1)(x)
-
-    x = layers.Dropout(0.5)(x)
-    #x = layers.GlobalAveragePooling3D()(x)
-    x = layers.Flatten()(x)
-    #x = layers.Dense(units=128, activation="relu")(x) # Implement a simple dense layer with double units
-    x = layers.Dense(units=1300)(x)
-    x = layers.Dense(units=50)(x)
-    #x = layers.Dropout(0.3)(x) # Start low, and work up if overfitting seems to be present
-
-    outputs = layers.Dense(units=classNo, activation="softmax")(x) # Units = no of classes. Also softmax because we want that probability output
-
-    # Define the model.
-    model = keras.Model(inputs, outputs, name=modelname)
-
-
-    return model
-
-def gen_model_2(width=208, height=240, depth=256, classes=3): # Make sure defaults are equal to image resizing defaults
-    modelname = "Advanced-CNN"
-    print(modelname)
-    # Initial build version - no explicit Sequential definition
-    inputs = keras.Input((width, height, depth, 1)) # Added extra dimension in preprocessing to accomodate that 4th dim
-
-    x = layers.Conv3D(filters=8, kernel_size=3, padding="valid", activation="relu")(inputs)
-    #x = layers.BatchNormalization()(x)
-    x = layers.MaxPool3D(pool_size=2)(x) # Paper conv and BN go together, then pooling
-    x = layers.Dropout(0.1)(x) # Apparently there's merit to very light dropout after each conv layer
-    
-    # kernel_regularizer=l2(0.01)
-    x = layers.Conv3D(filters=16, kernel_size=3, padding="valid", activation="relu")(x) #(x)
-    #x = layers.BatchNormalization()(x)
-    x = layers.MaxPool3D(pool_size=2)(x)
-    x = layers.Dropout(0.1)(x)
-    # NOTE: RECOMMENTED LOL
-
-    x = layers.Conv3D(filters=32, kernel_size=3, padding="valid", kernel_regularizer =tf.keras.regularizers.l2( l=0.01), activation="relu")(x)
-    #x = layers.BatchNormalization()(x)
-    x = layers.MaxPool3D(pool_size=2)(x)
-    x = layers.Dropout(0.1)(x)
-    # NOTE: Also commented this one for - we MINIMAL rn
-    
-    x = layers.Conv3D(filters=64, kernel_size=3, padding="valid", kernel_regularizer =tf.keras.regularizers.l2( l=0.01), activation="relu")(x)
-    #x = layers.BatchNormalization()(x)
-    x = layers.MaxPool3D(pool_size=2)(x)
-    x = layers.Dropout(0.1)(x)
-
-    #x = layers.Conv3D(filters=128, kernel_size=3, strides=1, padding="same", activation="relu")(x)
-    #x = layers.BatchNormalization()(x)
-    #x = layers.MaxPool3D(pool_size=2, strides=2)(x)
-    #x = layers.Dropout(0.1)(x)
-
-    x = layers.BatchNormalization()(x)
-    x = layers.Dropout(0.3)(x)
-    #x = layers.GlobalAveragePooling3D()(x)
-    x = layers.Flatten()(x)
-    #x = layers.Dense(units=128, activation="relu")(x) # Implement a simple dense layer with double units
-    x = layers.Dense(units=128)(x)
-    x = layers.Dense(units=64)(x)
-    #x = layers.Dropout(0.3)(x) # Start low, and work up if overfitting seems to be present
-
-    outputs = layers.Dense(units=classNo, activation="softmax")(x) # Units = no of classes. Also softmax because we want that probability output
-
-    # Define the model.
-    model = keras.Model(inputs, outputs, name=modelname)
-
-
-    return model
-
 def gen_basic_model(width=208, height=240, depth=256, classes=3): # Baby mode
     modelname = "Basic-CNN"
     print(modelname)
@@ -463,18 +347,45 @@ def gen_advanced_model(width=169, height=208, depth=179, classes=2):
     x = layers.MaxPool3D(pool_size=2, strides=2)(x)
     x = layers.Dropout(0.1)(x)
     
-    x = layers.Conv3D(filters=32, kernel_size=5, padding='valid', activation='relu')(x)
+    x = layers.Conv3D(filters=32, kernel_size=5, padding='valid', kernel_regularizer =tf.keras.regularizers.l2( l=0.01), activation='relu')(x)
     x = layers.BatchNormalization()(x)
     x = layers.MaxPool3D(pool_size=2, strides=2)(x)
     x = layers.Dropout(0.1)(x)
     
-    x = layers.Conv3D(filters=64, kernel_size=5, padding='valid', activation='relu')(x)
+    x = layers.Conv3D(filters=64, kernel_size=5, padding='valid', kernel_regularizer =tf.keras.regularizers.l2( l=0.01), activation='relu')(x)
     x = layers.BatchNormalization()(x)
     x = layers.MaxPool3D(pool_size=2, strides=2)(x)
     x = layers.Dropout(0.1)(x)
     
     x = layers.Flatten()(x)
     x = layers.Dropout(0.3)(x)
+    x = layers.Dense(units=128, activation='relu')(x)
+    x = layers.Dense(units=64, activation='relu')(x)
+    
+    outputs = layers.Dense(units=classes, activation='softmax')(x)
+    
+    model = keras.Model(inputs, outputs, name=modelname)
+    
+    return model
+
+def gen_advanced_noreg(width=169, height=208, depth=179, classes=2):
+    modelname = "Advanced-3D-CNN-NOREGUL"
+    print(modelname)
+    inputs = keras.Input((width, height, depth, 1))
+    
+    x = layers.Conv3D(filters=8, kernel_size=5, padding='valid', activation='relu')(inputs)
+    x = layers.MaxPool3D(pool_size=2, strides=2)(x)
+    
+    x = layers.Conv3D(filters=16, kernel_size=5, padding='valid', activation='relu')(x)
+    x = layers.MaxPool3D(pool_size=2, strides=2)(x)
+    
+    x = layers.Conv3D(filters=32, kernel_size=5, padding='valid', activation='relu')(x)
+    x = layers.MaxPool3D(pool_size=2, strides=2)(x)
+    
+    x = layers.Conv3D(filters=64, kernel_size=5, padding='valid', activation='relu')(x)
+    x = layers.MaxPool3D(pool_size=2, strides=2)(x)
+    
+    x = layers.Flatten()(x)
     x = layers.Dense(units=128, activation='relu')(x)
     x = layers.Dense(units=64, activation='relu')(x)
     
@@ -498,9 +409,9 @@ if reg:
 else:
     print("USING NO REGULARIZATION MODEL")
     #model = gen_basic_noreg(width=w, height=h, depth=d, classes=classNo)
-    model = gen_advanced_model(width=w, height=h, depth=d, classes=classNo)
+    model = gen_advanced_noreg(width=w, height=h, depth=d, classes=classNo)
 model.summary()
-optim = keras.optimizers.Adam(learning_rate=0.001)# , epsilon=1e-3) # LR chosen based on principle but double-check this later
+optim = keras.optimizers.Adam(learning_rate=0.0001)# , epsilon=1e-3) # LR chosen based on principle but double-check this later
 #model.compile(optimizer=optim, loss='binary_crossentropy', metrics=['accuracy']) # Temp binary for only two classes
 if batch_size > 1:
     metric = 'binary_accuracy'
@@ -516,7 +427,7 @@ print("Metric being used:", metric)
 
 # Checkpointing & Early Stopping
 mon = 'val_' +metric
-es = EarlyStopping(monitor=mon, patience=20, restore_best_weights=True) # Temporarily turning this off because I want to observe the full scope
+es = EarlyStopping(monitor=mon, patience=10, restore_best_weights=True) # Temporarily turning this off because I want to observe the full scope
 checkpointname = "/scratch/mssric004/Checkpoints/testing-{epoch:02d}.ckpt"
 localcheck = "/scratch/mssric004/TrueChecks/" + modelname +".ckpt"
 be = ModelCheckpoint(localcheck, monitor=mon, mode='auto', verbose=2, save_weights_only=True, save_best_only=True)
@@ -567,7 +478,7 @@ print("Params:", epochs, "epochs & batch size [", batch_size, "].")
 
 if testing_mode:
     #history = model.fit(x_train, y_train, validation_data=(x_val, y_val), batch_size=batch_size, epochs=epochs, verbose=0)
-    history = model.fit(train_set, validation_data=validation_set, epochs=epochs, shuffle=True) # DON'T SPECIFY BATCH SIZE, CAUSE INPUT IS ALREADY A BATCHED DATASET
+    history = model.fit(train_set, validation_data=validation_set, epochs=epochs, callbacks=[be], shuffle=True) # DON'T SPECIFY BATCH SIZE, CAUSE INPUT IS ALREADY A BATCHED DATASET
 else:
     history = model.fit(train_set, validation_data=validation_set, epochs=epochs, callbacks=[es, be, CustomCallback()], verbose=0, shuffle=True)
     #history = model.fit(train_set, validation_data=validation_set, epochs=epochs) #No callbacks
@@ -649,18 +560,15 @@ if plotting:
 
 # Readings
 try:
-    print("\nAccuracy max:", round(max(history.history[metric])*100,2), "% (epoch", history.history[metric].index(max(history.history[metric])), ")")
-    print("Loss min:", round(min(history.history['loss']),2), "(epoch", history.history['loss'].index(min(history.history['loss'])), ")")
-    print("Validation accuracy max:", round(max(history.history['val_'+metric])*100,2), "% (epoch", history.history['val_'+metric].index(max(history.history['val_'+metric])), ")")
-    print("Val loss min:", round(min(history.history['val_loss']),2), "(epoch", history.history['val_loss'].index(min(history.history['val_loss'])), ")")
+    print("\nAccuracy max:", round(max(history.history[metric])*100,2), "% (epoch", history.history[metric].index(max(history.history[metric]))+1, ")")
+    print("Loss min:", round(min(history.history['loss']),2), "(epoch", history.history['loss'].index(min(history.history['loss']))+1, ")")
+    print("Validation accuracy max:", round(max(history.history['val_'+metric])*100,2), "% (epoch", history.history['val_'+metric].index(max(history.history['val_'+metric]))+1, ")")
+    print("Val loss min:", round(min(history.history['val_loss']),2), "(epoch", history.history['val_loss'].index(min(history.history['val_loss']))+1, ")")
 except Exception as e:
     print("Cannot print out summary data. Reason:", e)
     
 # Number of epochs trained for
 epochcount = len(history.history['val_loss'])
-
-# Load best checkpoint
-model.load_weights(localcheck)
 
 # Final evaluation
 print("\nEvaluating using test data...")
@@ -677,14 +585,7 @@ try:
         test.map(load_val_wrapper)
         .batch(batch_size)
         .prefetch(batch_size)
-    ) # Later we may need to use a different wrapper function? Not sure.
-    try:
-        scores = model.evaluate(test_set, verbose=0) # Should not need to specify batch size, because of set
-        acc = scores[1]*100
-        loss = scores[0]
-        print("Evaluated scores - Acc:", acc, "Loss:", loss)
-    except:
-        print("Error occured during evaluation. Isn't this weird?\nTest set labels are:", y_test)
+    ) # Later we may need to use a different wrapper function? Not sure. 
 except:
     print("Couldn't assign test_set to a wrapper (for evaluation).")
 
@@ -695,29 +596,59 @@ try:
         .prefetch(batch_size)
     )
     #if not testing_mode: # NEED TO REWORK THIS
+except Exception as e:
+    print("Couldn't assign test_set_x to a wrapper (for matrix). Reason:", e)
+
+# Test loop
+for i in range(2):
+    if i == 0:
+        print("\nUSING EARLYSTOPPING DEFAULT:")
+    elif i == 1:
+        # Load best checkpoint
+        print("\nLOADING BEST CHECKPOINT:")
+        model.load_weights(localcheck)
+    
+    try:
+        scores = model.evaluate(test_set, verbose=0) # Should not need to specify batch size, because of set
+        acc = scores[1]*100
+        loss = scores[0]
+        print("Evaluated scores - Acc:", acc, "Loss:", loss)
+    except:
+        print("Error occured during evaluation. Isn't this weird?\nTest set labels are:", y_test)
     
     from sklearn.metrics import classification_report, confusion_matrix, cohen_kappa_score
     print("\nGenerating classification report...")
     try:
         y_pred = model.predict(test_set_x, verbose=0)
         y_pred = np.argmax(y_pred, axis=1)
-        y_test = np.argmax(y_test, axis=1)
-        rep = classification_report(y_test, y_pred)
-        conf = confusion_matrix(y_test, y_pred)
-        coh = cohen_kappa_score(y_test, y_pred)
+        y_hat = np.argmax(y_test, axis=1)
+        rep = classification_report(y_hat, y_pred)
+        conf = confusion_matrix(y_hat, y_pred)
+        coh = cohen_kappa_score(y_hat, y_pred)
         print(rep)
         print("\nConfusion matrix:")
         print(conf)
         print("Cohen Kappa Score (0 = chance, 1 = perfect):", coh)
-        limit = min(30, len(y_test))
+        limit = min(30, len(y_hat))
         print("\nActual test set (first ", (limit+1), "):", sep='')
-        print(y_test[:limit])
+        print(y_hat[:limit])
         print("Predictions are  as follows (first ", (limit+1), "):", sep='')
         print(y_pred[:limit])
     except:
         print("Error occured in classification report (ie. predict). Test set labels are:\n", y_test)
-except Exception as e:
-    print("Couldn't assign test_set_x to a wrapper (for matrix). Reason:", e)
+
+# Clean up checkpoints
+print("Cleaning up...")
+import glob
+found = glob.glob(localcheck+"*")
+if len(found) == 0:
+    print("The system cannot find", localcheck)
+else:
+    removecount = 0
+    for checkfile in found:
+        removecount += 1
+        os.remove(checkfile)
+    print("Successfully cleaned up", removecount, "checkpoint files.")
 
 # Writing some test results down
 if not testing_mode:

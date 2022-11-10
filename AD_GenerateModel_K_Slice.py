@@ -28,10 +28,11 @@ import sys
 import random
 import datetime
 from collections import Counter
-from volumentations import * # OI, WE NEED TO CITE VOLUMENTATIONS NOW
+from volumentations import *
 from sklearn.model_selection import KFold, StratifiedKFold
 from sklearn.metrics import accuracy_score
 from statistics import mode, mean
+import glob
 print("Imports working.")
 
 # Attempt to better allocate memory.
@@ -271,103 +272,6 @@ print("Test data prepared.")
 # Model architecture go here
 # For consideration: https://www.frontiersin.org/articles/10.3389/fbioe.2020.534592/full#B22
 # Current inspiration: https://ieeexplore.ieee.org/document/7780459 (VGG19)
-def gen_model(width=208, height=240, depth=256, classes=3): # Make sure defaults are equal to image resizing defaults
-    # Initial build version - no explicit Sequential definition
-    inputs = keras.Input((width, height, depth, 1)) # Added extra dimension in preprocessing to accomodate that 4th dim
-
-    x = layers.Conv3D(filters=8, kernel_size=3, strides=1, padding="same", activation="relu")(inputs)
-    x = layers.BatchNormalization()(x)
-    x = layers.MaxPool3D(pool_size=2, strides=2)(x) # Paper conv and BN go together, then pooling
-    #x = layers.Dropout(0.1)(x) # Apparently there's merit to very light dropout after each conv layer
-    
-    # kernel_regularizer=l2(0.01)
-    x = layers.Conv3D(filters=16, kernel_size=3, strides=1, padding="same", activation="relu")(x) #(x)
-    x = layers.BatchNormalization()(x)
-    x = layers.MaxPool3D(pool_size=2, strides=2)(x)
-    #x = layers.Dropout(0.1)(x)
-    # NOTE: RECOMMENTED LOL
-
-    x = layers.Conv3D(filters=32, kernel_size=3, strides=1, padding="same", activation="relu")(x)
-    x = layers.BatchNormalization()(x)
-    x = layers.MaxPool3D(pool_size=2, strides=2)(x)
-    #x = layers.Dropout(0.1)(x)
-    # NOTE: Also commented this one for - we MINIMAL rn
-    
-    x = layers.Conv3D(filters=64, kernel_size=3, strides=1, padding="same", activation="relu")(x)
-    x = layers.BatchNormalization()(x)
-    x = layers.MaxPool3D(pool_size=2, strides=2)(x)
-    #x = layers.Dropout(0.1)(x)
-
-    x = layers.Conv3D(filters=128, kernel_size=3, strides=1, padding="same", activation="relu")(x)
-    x = layers.BatchNormalization()(x)
-    x = layers.MaxPool3D(pool_size=2, strides=2)(x)
-    #x = layers.Dropout(0.1)(x)
-
-    x = layers.Dropout(0.5)(x)
-    #x = layers.GlobalAveragePooling3D()(x)
-    x = layers.Flatten()(x)
-    #x = layers.Dense(units=128, activation="relu")(x) # Implement a simple dense layer with double units
-    x = layers.Dense(units=1300)(x)
-    x = layers.Dense(units=50)(x)
-    #x = layers.Dropout(0.3)(x) # Start low, and work up if overfitting seems to be present
-
-    outputs = layers.Dense(units=classNo, activation="softmax")(x) # Units = no of classes. Also softmax because we want that probability output
-
-    # Define the model.
-    model = keras.Model(inputs, outputs, name="3DCNN")
-
-
-    return model
-
-def gen_model_2(width=208, height=240, depth=256, classes=3): # Make sure defaults are equal to image resizing defaults
-    # Initial build version - no explicit Sequential definition
-    inputs = keras.Input((width, height, depth, 1)) # Added extra dimension in preprocessing to accomodate that 4th dim
-
-    x = layers.Conv3D(filters=8, kernel_size=3, padding="same", activation="relu")(inputs)
-    #x = layers.BatchNormalization()(x)
-    x = layers.MaxPool3D(pool_size=2)(x) # Paper conv and BN go together, then pooling
-    #x = layers.Dropout(0.1)(x) # Apparently there's merit to very light dropout after each conv layer
-    
-    # kernel_regularizer=l2(0.01)
-    x = layers.Conv3D(filters=16, kernel_size=3, padding="same", activation="relu")(x) #(x)
-    #x = layers.BatchNormalization()(x)
-    x = layers.MaxPool3D(pool_size=2)(x)
-    #x = layers.Dropout(0.1)(x)
-    # NOTE: RECOMMENTED LOL
-
-    x = layers.Conv3D(filters=32, kernel_size=3, padding="same", activation="relu")(x)
-    #x = layers.BatchNormalization()(x)
-    x = layers.MaxPool3D(pool_size=2)(x)
-    #x = layers.Dropout(0.1)(x)
-    # NOTE: Also commented this one for - we MINIMAL rn
-    
-    x = layers.Conv3D(filters=64, kernel_size=3, padding="same", activation="relu")(x)
-    #x = layers.BatchNormalization()(x)
-    x = layers.MaxPool3D(pool_size=2)(x)
-    #x = layers.Dropout(0.1)(x)
-
-    #x = layers.Conv3D(filters=128, kernel_size=3, strides=1, padding="same", activation="relu")(x)
-    #x = layers.BatchNormalization()(x)
-    #x = layers.MaxPool3D(pool_size=2, strides=2)(x)
-    #x = layers.Dropout(0.1)(x)
-
-    x = layers.BatchNormalization()(x)
-    x = layers.Dropout(0.5)(x)
-    #x = layers.GlobalAveragePooling3D()(x)
-    x = layers.Flatten()(x)
-    #x = layers.Dense(units=128, activation="relu")(x) # Implement a simple dense layer with double units
-    x = layers.Dense(units=128)(x)
-    x = layers.Dense(units=64)(x)
-    #x = layers.Dropout(0.3)(x) # Start low, and work up if overfitting seems to be present
-
-    outputs = layers.Dense(units=classNo, activation="softmax")(x) # Units = no of classes. Also softmax because we want that probability output
-
-    # Define the model.
-    model = keras.Model(inputs, outputs, name="3DCNN")
-
-
-    return model
-
 def gen_basic_2Dmodel(width=208, height=240, depth=256, classes=3): # Baby mode
     # Initial build version - no explicit Sequential definition
     inputs = keras.Input((width, height, depth)) # Added extra dimension in preprocessing to accomodate that 4th dim
@@ -388,21 +292,41 @@ def gen_basic_2Dmodel(width=208, height=240, depth=256, classes=3): # Baby mode
 
     return model
 
-# Checkpointing & Early Stopping
-mon = 'val_loss'
-es = EarlyStopping(monitor=mon, patience=10, restore_best_weights=True) # Temp at 30 to circumvent issue with first epoch behaving weirdly
-checkpointname = "2Dk_fold_checkpoints.h5"
-if testing_mode:
-    checkpointname = "k_fold_checkpoints_testing.h5"
-mc = ModelCheckpoint(checkpointname, monitor=mon, mode='auto', verbose=2, save_best_only=True) #Maybe change to true so we can more easily access the "best" epoch
-if testing_mode:
-    log_dir = "/scratch/mssric004/test_logs/fit/2Dk_fold/" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-else:
-    if logname != "na":
-        log_dir = "/scratch/mssric004/logs/fit/2Dk_fold/" + logname + "_" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-    else:
-        log_dir = "/scratch/mssric004/logs/fit/2Dk_fold/" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-tb = TensorBoard(log_dir=log_dir, histogram_freq=1)
+def gen_advanced_2d_model(width=169, height=208, depth=179, classes=2):
+    modelname = "Advanced-2D-CNN"
+    #print(modelname)
+    inputs = keras.Input((width, height, depth))
+    
+    x = layers.Conv2D(filters=8, kernel_size=5, padding='valid', activation='relu', data_format="channels_last")(inputs)
+    x = layers.BatchNormalization()(x)
+    x = layers.MaxPool2D(pool_size=2, strides=2)(x)
+    x = layers.Dropout(0.1)(x)
+    
+    x = layers.Conv2D(filters=16, kernel_size=5, padding='valid', activation='relu', data_format="channels_last")(x)
+    x = layers.BatchNormalization()(x)
+    x = layers.MaxPool2D(pool_size=2, strides=2)(x)
+    x = layers.Dropout(0.1)(x)
+    
+    x = layers.Conv2D(filters=32, kernel_size=5, padding='valid', kernel_regularizer =tf.keras.regularizers.l2( l=0.01), activation='relu', data_format="channels_last")(x)
+    x = layers.BatchNormalization()(x)
+    x = layers.MaxPool2D(pool_size=2, strides=2)(x)
+    x = layers.Dropout(0.1)(x)
+    
+    x = layers.Conv2D(filters=64, kernel_size=5, padding='valid', kernel_regularizer =tf.keras.regularizers.l2( l=0.01), activation='relu', data_format="channels_last")(x)
+    x = layers.BatchNormalization()(x)
+    x = layers.MaxPool2D(pool_size=2, strides=2)(x)
+    x = layers.Dropout(0.1)(x)
+    
+    x = layers.Flatten()(x)
+    x = layers.Dropout(0.3)(x)
+    x = layers.Dense(units=128, activation='relu')(x)
+    x = layers.Dense(units=64, activation='relu')(x)
+    
+    outputs = layers.Dense(units=classes, activation='softmax')(x)
+    
+    model = keras.Model(inputs, outputs, name=modelname)
+    
+    return model
 
 # Custom callbacks (aka make keras actually report stuff during training)
 class CustomCallback(keras.callbacks.Callback):
@@ -413,19 +337,20 @@ class CustomCallback(keras.callbacks.Callback):
         #if (epoch+1) == epochs:
         #    print('')
 
-# Setting class weights
-from sklearn.utils import class_weight
-
-y_org = y
-class_weights = class_weight.compute_class_weight('balanced', classes=np.unique(y_org), y=y_org)
-class_weight_dict = dict()
-for index,value in enumerate(class_weights):
-    class_weight_dict[index] = value
-#class_weight_dict = {i:w for i,w in enumerate(class_weights)}
-print("Class weight dsitribution will be:", class_weight_dict)
+# Checkpointing & Early Stopping
+if batch_size > 1:
+    metric = 'binary_accuracy'
+else:
+    metric = 'accuracy'
+mon = 'val_' +metric
+es = EarlyStopping(monitor=mon, patience=10, restore_best_weights=True) # Temporarily turning this off because I want to observe the full scope
+checkpointname = "/scratch/mssric004/Checkpoints/testing-{epoch:02d}.ckpt"
+localcheck = "/scratch/mssric004/TrueChecks/" + modelname +".ckpt"
+be = ModelCheckpoint(localcheck, monitor=mon, mode='auto', verbose=2, save_weights_only=True, save_best_only=True)
+mc = ModelCheckpoint(checkpointname, monitor=mon, mode='auto', verbose=2, save_weights_only=True, save_best_only=False) #Maybe change to true so we can more easily access the "best" epoch
 
 # Slice generation stuff
-optim = keras.optimizers.Adam(learning_rate=0.001)# , epsilon=1e-3) # LR chosen based on principle but double-check this later
+optim = keras.optimizers.Adam(learning_rate=0.0001)# , epsilon=1e-3) # LR chosen based on principle but double-check this later
 channels = 1 # Replicating into 3 channels is proving annoying
 
 def generatePriorityModels(slices, metric):
@@ -439,31 +364,14 @@ def generatePriorityModels(slices, metric):
         display.insert(i, "->")
         print(display)
         # Set up a model
-        model = gen_basic_2Dmodel(w, h, channels, classes=classNo)
+        model = gen_advanced_2d_model(w, h, channels, classes=classNo)
         model.compile(optimizer=optim, loss='categorical_crossentropy', metrics=['accuracy']) #metrics=[tf.keras.metrics.BinaryAccuracy()]
-        
-        # Checkpointing & Early Stopping
-        es = EarlyStopping(monitor='val_loss', patience=5, restore_best_weights=True) # Temp at 30 to circumvent issue with first epoch behaving weirdly
-        checkpointname = "/2d_V1_checkpoints/slice" +str(n) +".h5"
-        if testing_mode:
-            checkpointname = "2d_V1_checkpoints_testing.h5"
-        mc = ModelCheckpoint(checkpointname, monitor='val_loss', mode='min', verbose=1, save_best_only=True) #Maybe change to true so we can more easily access the "best" epoch
-        if testing_mode:
-            log_dir = "/scratch/mssric004/test_logs/fit/2dslice/" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-        else:
-            log_dir = "/scratch/mssric004/logs/fit/2dsliceNEO/" + logname + "/slice" +str(n) +"_" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-        tb = TensorBoard(log_dir=log_dir, histogram_freq=1)
-        
         models.append(model)
         weight = model.get_weights()
         weights.append(weight)
     return models, weights
 
 # Build model list
-if batch_size > 1:
-    metric = 'binary_accuracy'
-else:
-    metric = 'accuracy'
 model_list, initials = generatePriorityModels(priority_slices, metric)
 
 def reset_weights(reused_model, init_weights):
@@ -552,89 +460,26 @@ for train_index, val_index in skf.split(x, y):
         print(display)
         if testing_mode:
         #history = model.fit(x_train, y_train, validation_data=(x_val, y_val), batch_size=batches, epochs=epochs, verbose=0)
-            history = model_list[i].fit(train_set, validation_data=validation_set, epochs=epochs, verbose=0, callbacks=[CustomCallback()]) # DON'T SPECIFY BATCH SIZE, CAUSE INPUT IS ALREADY A BATCHED DATASET
+            history = model_list[i].fit(train_set, validation_data=validation_set, epochs=epochs, verbose=0, callbacks=[be, CustomCallback()]) # DON'T SPECIFY BATCH SIZE, CAUSE INPUT IS ALREADY A BATCHED DATASET
         else:
         #history = model.fit(x_train, y_train, validation_data=(x_val, y_val), batch_size=batches, epochs=epochs, verbose=0, shuffle=True)
-            history = model_list[i].fit(train_set, validation_data=validation_set, epochs=epochs, callbacks=[tb, es], verbose=0, shuffle=True)
+            history = model_list[i].fit(train_set, validation_data=validation_set, epochs=epochs, callbacks=[be, es], verbose=0, shuffle=True)
             # Not saving checkpoints FOR NOW
         print(history.history)
+        model_list[i].load_weights(localcheck)
         val_weight = history.history['val_accuracy'][-1]
         names.append("model"+str(n))
         voting_weights.append(val_weight)
+        # Clean up checkpoints
+        import glob
+        found = glob.glob(localcheck+"*")
+        removecount = 0
+        for checkfile in found:
+            removecount += 1
+            os.remove(checkfile)
 
     print("RESULTS FOR FOLD", fold, ":")
-    #print(history.history)
-    #best_epoch = np.argmin(history.history['val_loss']) + 1
-    #print("Epoch with lowest validation loss: Epoch", best_epoch, ": Val_Loss[", history.history['loss'][best_epoch-1], "] Val_Acc[", history.history['val_accuracy'][best_epoch-1], "]")
-    '''
-    # Readings
-    try:
-        print("\nAccuracy max:", round(max(history.history[metric])*100,2), "% (epoch", history.history[metric].index(max(history.history[metric])), ")")
-        print("Loss min:", round(min(history.history['loss']),2), "(epoch", history.history['loss'].index(max(history.history['loss'])), ")")
-        print("Validation accuracy max:", round(max(history.history['val_'+metric])*100,2), "% (epoch", history.history['val_'+metric].index(max(history.history['val_'+metric])), ")")
-        print("Val loss min:", round(min(history.history['val_loss']),2), "(epoch", history.history['val_loss'].index(max(history.history['val_loss'])), ")")
-    except Exception as e:
-        print("Cannot print out summary data. Reason:", e)
     
-    def make_unique(path, run):
-        print("Figuring out where to save plots to...")
-        expand = 1
-        folder = path+"/run"+str(expand)+"/"
-        while True:
-            if os.path.isdir(folder):
-                print("I have determined that there is already a folder named", folder)
-                expand += 1
-                folder = path+"run"+str(expand)+"/"
-                continue
-            else:
-                if run == 1:
-                    print(folder, "does not exist, so we shall create it and save stuff there.")
-                    os.mkdir(folder)
-                else:
-                    print("Subsequent run, therefore just save to run", str(expand-1))
-                    return path+"/run"+str(expand-1)+"/"
-                break
-        return folder
-    '''
-    '''
-    plotting = True
-    if plotting:
-        try:
-            print("Importing matplotlib.")
-            import matplotlib
-            matplotlib.use('agg')
-            import matplotlib.pyplot as plt
-            plotpath = "Plots/Kfold-2D/"
-            path = make_unique(plotpath, fold)
-            if testing_mode:
-                plotname = "testing_fold"
-            else:
-                plotname = "fold"
-            plotname = plotname + "_" + str(fold)
-            # Plot stuff
-            plt.plot(history.history[metric])
-            plt.plot(history.history[('val_'+metric)])
-            plt.legend(['train', 'val'], loc='upper left')
-            plt.title('Model Accuracy')
-            plt.ylabel('Accuracy')
-            plt.xlabel('Epoch')
-            name = plotname + "_acc.png"
-            plt.savefig(path+name)
-            plt.clf()
-            # summarize history for loss
-            plt.plot(history.history['loss'])
-            plt.plot(history.history['val_loss'])
-            plt.legend(['train', 'val'], loc='upper left')
-            plt.title('model loss')
-            plt.ylabel('loss')
-            plt.xlabel('epoch')
-            name = plotname + "_loss.png"
-            plt.savefig(path+name)
-            #plt.savefig(plotname + "_val" + ".png")
-            print("Saved plot, btw.")
-        except Exception as e:
-            print("Plotting didn't work out. Error:", e)
-    '''
     # Final evaluation
     preds=[]
     predi=[]

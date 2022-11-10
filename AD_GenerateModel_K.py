@@ -3,7 +3,7 @@
 # Info: Checking on the checkpoints real quick
 # Last use in 2021: October 29th
 print("\nIMPLEMENTATION: K-Fold")
-desc = "3D K-fold. CN vs. AD."
+desc = "3D K-fold. Advanced model. Let's go."
 print(desc)
 import os
 import subprocess as sp
@@ -28,8 +28,9 @@ import sys
 import random
 import datetime
 from collections import Counter
-from volumentations import * # OI, WE NEED TO CITE VOLUMENTATIONS NOW
+from volumentations import *
 from sklearn.model_selection import KFold, StratifiedKFold
+import glob
 print("Imports working.")
 
 # Attempt to better allocate memory.
@@ -55,7 +56,8 @@ curated = False
 trimming = True
 bad_data = False
 checkpointing = False
-logname = "K_V6-advanced-practice"
+nosplit = False
+logname = "K_V6-advanced-true"
 modelname = "ADModel_"+logname
 if not testing_mode:
     print("MODELNAME:", modelname)
@@ -63,11 +65,11 @@ if not testing_mode:
 
 # Model hyperparameters
 if testing_mode:
-    epochs = 2 #Small for testing purposes
-    batch_size = 2
+    epochs = 3 #Small for testing purposes
+    batch_size = 3
 else:
-    epochs = 30 # JUST FOR NOW
-    batch_size = 2 # Going to need to fiddle with this over time (balance time save vs. running out of memory)
+    epochs = 25 # JUST FOR NOW
+    batch_size = 3 # Going to need to fiddle with this over time (balance time save vs. running out of memory)
 
 # Define image size (lower image resolution in order to speed up for broad testing)
 if testing_mode:
@@ -142,32 +144,49 @@ labels = labels.split("\n")
 labels = [ int(i) for i in labels]
 label_file.close()
 print("Data distribution:", Counter(labels))
-#labels = to_categorical(labels, num_classes=classNo, dtype='float32')
+labels = to_categorical(labels, num_classes=classNo, dtype='float32')
 # ^ for k, don't do it here
 print("\nOBTAINED DATA. (Scaling by a factor of ", scale, ")", sep='')
 
 # Split data
-rar = 0
+'''
+rar = 1
 if testing_mode:
     x, x_test, y, y_test = train_test_split(path, labels, test_size=0.25, stratify=labels, random_state=rar, shuffle=True) # 75/25 (for eventual 50/25/25)
 else:
-    x, x_test, y, y_test = train_test_split(path, labels, test_size=0.1, stratify=labels, random_state=rar, shuffle=True) # Defaulting to 75 train, 25 val/test. Also shuffle=true and stratifytrue.
+    x, x_test, y, y_test = train_test_split(path, labels, test_size=0.2, stratify=labels, random_state=rar, shuffle=True) # Defaulting to 75 train, 25 val/test. Also shuffle=true and stratifytrue.
+x = np.array(x)
+y = np.array(y)
+'''
+# Trying out something weird
+rar = 0
+if testing_mode:
+    x_train, x_val, y_train, y_val = train_test_split(path, labels, test_size=0.5, stratify=labels, random_state=rar, shuffle=True) # 50/50 (for eventual 50/25/25)
+else:
+    x_train, x_val, y_train, y_val = train_test_split(path, labels, stratify=labels, random_state=rar, shuffle=True) # Defaulting to 75 train, 25 val/test. Also shuffle=true and stratifytrue.
+if testing_mode:
+    x_val, x_test, y_val, y_test = train_test_split(x_val, y_val, stratify=y_val, test_size=0.5, random_state=rar, shuffle=True) # Just split 50/50.
+else:
+    x_val, x_test, y_val, y_test = train_test_split(x_val, y_val, stratify=y_val, random_state=rar, test_size=0.4, shuffle=True) # 60/40 val/test
+# Now stitch them together like Frankenstein
+x = x_train + x_val
+traintemp = np.argmax(y_train, axis=1).tolist()
+valtemp = np.argmax(y_val, axis=1).tolist()
+y = traintemp+valtemp
 x = np.array(x)
 y = np.array(y)
 
-# Need to make sure y_test is already prepared
-y_test = to_categorical(y_test, num_classes=classNo, dtype='float32')
-
 # To observe data distribution
 def countClasses(categors, name):
-    #temp = np.argmax(categors, axis=1)
-    print(name, "distribution:", Counter(categors))
+    temp = np.argmax(categors, axis=1)
+    print(name, "distribution:", Counter(temp))
 
 print("Number of training/validation images:", len(x))
-countClasses(y, "Training/validation")
-#y_train = np.asarray(y_train)
-#print("Validation distribution:", Counter(y_val))
+#countClasses(y, "Training/validation")
 print("Number of testing images:", len(x_test), "\n")
+if testing_mode:
+    print("Training labels:", y)
+#print("Label type:", y[0].dtype)
 
 # Data augmentation functions
 aug_rate = 1
@@ -420,12 +439,12 @@ def gen_advanced_model(width=169, height=208, depth=179, classes=2):
     x = layers.MaxPool3D(pool_size=2, strides=2)(x)
     x = layers.Dropout(0.1)(x)
     
-    x = layers.Conv3D(filters=32, kernel_size=5, padding='valid', activation='relu')(x)
+    x = layers.Conv3D(filters=32, kernel_size=5, padding='valid', kernel_regularizer =tf.keras.regularizers.l2( l=0.01), activation='relu')(x)
     x = layers.BatchNormalization()(x)
     x = layers.MaxPool3D(pool_size=2, strides=2)(x)
     x = layers.Dropout(0.1)(x)
     
-    x = layers.Conv3D(filters=64, kernel_size=5, padding='valid', activation='relu')(x)
+    x = layers.Conv3D(filters=64, kernel_size=5, padding='valid', kernel_regularizer =tf.keras.regularizers.l2( l=0.01), activation='relu')(x)
     x = layers.BatchNormalization()(x)
     x = layers.MaxPool3D(pool_size=2, strides=2)(x)
     x = layers.Dropout(0.1)(x)
@@ -449,14 +468,12 @@ else:
 
 # Checkpointing & Early Stopping
 mon = 'val_' +metric
-es = EarlyStopping(monitor=mon, patience=20, restore_best_weights=True) # Temporarily turning this off because I want to observe the full scope
+es = EarlyStopping(monitor=mon, patience=10, restore_best_weights=True) # Temporarily turning this off because I want to observe the full scope
 checkpointname = "/scratch/mssric004/Checkpoints/kfold-advanced-{epoch:02d}.ckpt"
 if testing_mode:
     print("Setting checkpoint")
     checkpointname = "/TestCheckpoints/neo_checkpoint-{epoch:02d}.ckpt"
 mc = ModelCheckpoint(checkpointname, monitor=mon, mode='auto', verbose=2, save_weights_only=True, save_best_only=False) #Maybe change to true so we can more easily access the "best" epoch
-localcheck = "/scratch/mssric004/TrueChecks/" + modelname +".ckpt"
-be = ModelCheckpoint(localcheck, monitor=mon, mode='auto', verbose=2, save_weights_only=True, save_best_only=True)
 if testing_mode:
     log_dir = "/scratch/mssric004/test_logs/fit/neo/" + datetime.datetime.now().strftime("%d/%m/%Y-%H:%M")
 else:
@@ -500,7 +517,7 @@ print("Class weight distribution will be:", class_weight_dict)
 def initial_model(w, h, d, classNo, metric):
     print("USING ADVANCED MODEL.")
     model = gen_advanced_model(width=w, height=h, depth=d, classes=classNo)
-    optim = keras.optimizers.Adam(learning_rate=0.001)# , epsilon=1e-3) # LR chosen based on principle but double-check this later
+    optim = keras.optimizers.Adam(learning_rate=0.0001)# , epsilon=1e-3) # LR chosen based on principle but double-check this later
     if metric == 'binary_accuracy':
         model.compile(optimizer=optim, loss='categorical_crossentropy', metrics=[tf.keras.metrics.BinaryAccuracy()]) #metrics=['accuracy']) #metrics=[tf.keras.metrics.BinaryAccuracy()]
     else:
@@ -513,9 +530,9 @@ def reset_weights(reused_model, init_weights):
     reused_model.set_weights(init_weights)
 
 # K-Fold setup
-n_folds = 5
+n_folds = 5 # FOR NOW
 if testing_mode:
-    n_folds = 2
+    n_folds = 5
 acc_per_fold = []
 loss_per_fold = []
 rar = 0
@@ -523,9 +540,10 @@ skf = StratifiedKFold(n_splits=n_folds, random_state=rar, shuffle=True)
 mis_classes = []
 suc_classes = []
 
+fold = 0
+# Start training
 print("\nStarting cross-fold validation process...")
 print("Params:", epochs, "epochs &", batch_size, "batches.")
-fold = 0
 for train_index, val_index in skf.split(x, y):
     fold = fold + 1
     print("***************\nNow on Fold", fold, "out of", n_folds)
@@ -541,6 +559,10 @@ for train_index, val_index in skf.split(x, y):
     y_val = tf.keras.utils.to_categorical(y_val)
     
     print("Training iteration on " + str(len(x_train)) + " training samples, " + str(len(x_val)) + " validation samples")
+
+    # Give each fold a different local checkpoint
+    localcheck = "/scratch/mssric004/TrueChecks/" + modelname +"_fold" +str(fold) +".ckpt"
+    be = ModelCheckpoint(localcheck, monitor=mon, mode='auto', verbose=2, save_weights_only=True, save_best_only=True)
 
     print("Setting up dataloaders...")
     # TO-DO: Augmentation stuff
@@ -586,10 +608,10 @@ for train_index, val_index in skf.split(x, y):
     
     # Readings
     try:
-        print("\nAccuracy max:", round(max(history.history[metric])*100,2), "% (epoch", history.history[metric].index(max(history.history[metric])), ")")
-        print("Loss min:", round(min(history.history['loss']),2), "(epoch", history.history['loss'].index(min(history.history['loss'])), ")")
-        print("Validation accuracy max:", round(max(history.history['val_'+metric])*100,2), "% (epoch", history.history['val_'+metric].index(max(history.history['val_'+metric])), ")")
-        print("Val loss min:", round(min(history.history['val_loss']),2), "(epoch", history.history['val_loss'].index(min(history.history['val_loss'])), ")")
+        print("\nAccuracy max:", round(max(history.history[metric])*100,2), "% (epoch", history.history[metric].index(max(history.history[metric]))+1, ")")
+        print("Loss min:", round(min(history.history['loss']),2), "(epoch", history.history['loss'].index(min(history.history['loss']))+1, ")")
+        print("Validation accuracy max:", round(max(history.history['val_'+metric])*100,2), "% (epoch", history.history['val_'+metric].index(max(history.history['val_'+metric]))+1, ")")
+        print("Val loss min:", round(min(history.history['val_loss']),2), "(epoch", history.history['val_loss'].index(min(history.history['val_loss']))+1, ")")
     except Exception as e:
         print("Cannot print out summary data. Reason:", e)
     
@@ -613,7 +635,7 @@ for train_index, val_index in skf.split(x, y):
                 break
         return folder
 
-    plotting = True
+    plotting = not testing_mode
     if plotting:
         try:
             print("Importing matplotlib.")
@@ -648,7 +670,7 @@ for train_index, val_index in skf.split(x, y):
             plt.savefig(path+name)
             plt.clf()
             #plt.savefig(plotname + "_val" + ".png")
-            print("Saved plot, btw.")
+            print("Saved plots to", path)
         except Exception as e:
             print("Plotting didn't work out. Error:", e)
     
@@ -724,12 +746,28 @@ for train_index, val_index in skf.split(x, y):
             print("Checkpoint", count, "scores - Acc:", acc, "Loss:", loss)
             count += 1
 
+    # Clean up checkpoints
+    print("Cleaning up...")
+    found = glob.glob(localcheck+"*")
+    if len(found) == 0:
+        print("The system cannot find", localcheck)
+    else:
+        removecount = 0
+        for checkfile in found:
+            removecount += 1
+            os.remove(checkfile)
+        print("Successfully cleaned up", removecount, "checkpoint files.")
+    
     print("Average so far:" , np.mean(acc_per_fold), "+-", np.std(acc_per_fold))
+    if nosplit:
+        print("ENDING AFTER ONE FOLD.")
+        break
 
 # Save outside the loop my sire
 if testing_mode:
     modelname = "ADModel_K_Testing"
-modelname = modelname +".h5"
+else:
+    modelname = modelname +".h5"
 model.save("/scratch/mssric004/Saved Models/"+modelname)
 print("Saved the model to scratch models:", modelname)
 # Electing not to save for now since the file it generates is HUGE
@@ -748,7 +786,10 @@ print("Loss:",  np.mean(loss_per_fold), "+-", np.std(loss_per_fold))
 print("------------------------------------------------------------------------")
 
 # Save stuff so I can make a box and whisker plot later
-loc = "Means/" + logname
+if testing_mode:
+    loc = "Means/KTesting"
+else:
+    loc = "Means/" + logname
 print("Saving means to:", loc)
 np.savez(loc, acc_per_fold, loss_per_fold)
 

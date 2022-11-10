@@ -2,7 +2,7 @@
 # Richard Masson
 # Last use in 2021: October 29th
 print("\nIMPLEMENTATION: 2D Slices")
-print("CURRENT TEST: Testing that new advanced model hotness.")
+print("CURRENT TEST: Modern Slice, CN vs. MCI.")
 #print("CURRENT TEST: First official test on everything.")
 # TO DO: Model2
 import os
@@ -29,10 +29,8 @@ from tensorflow.keras.regularizers import l2
 import random
 import datetime
 from collections import Counter
-from volumentations import * # OI, WE NEED TO CITE VOLUMENTATIONS NOW
-import matplotlib
-matplotlib.use('agg')
-import matplotlib.pyplot as plt
+from volumentations import *
+import glob
 print("Imports working.")
 # Attempt to better allocate memory.
 
@@ -46,7 +44,7 @@ from datetime import date
 print("Today's date:", date.today())
 
 # Are we in testing mode?
-testing_mode = True
+testing_mode = False
 memory_mode = False
 #limiter = False
 #pure_mode = False
@@ -54,7 +52,7 @@ strip_mode = False
 norm_mode = False
 trimming = True
 maxxing = True # True = use prio slices
-logname = "2DSlice_V6-testing"
+logname = "2DSlice_V6-prio-MCI"
 modelname = "ADModel_"+logname
 
 if not testing_mode:
@@ -64,10 +62,10 @@ if not testing_mode:
 # Model hyperparameters
 if testing_mode:
     epochs = 1 #Small for testing purposes
-    batches = 2
+    batches = 3
 else:
-    epochs = 15 # JUST FOR NOW
-    batches = 2 # Going to need to fiddle with this over time (balance time save vs. running out of memory)
+    epochs = 25 # JUST FOR NOW
+    batches = 3 # Going to need to fiddle with this over time (balance time save vs. running out of memory)
 
 # Set which slices to use, based on previous findings
 # To-do: I really need to automate this by saving the best values
@@ -86,7 +84,7 @@ d = int(179/scale)
 #n = -1 # If it ever comes up as -1, we know future assignments aren't working.
 
 # Prepare parameters for fetching the data
-modo = 2 # 1 for CN/MCI, 2 for CN/AD, 3 for CN/MCI/AD, 4 for weird AD-only, 5 for MCI-only
+modo = 1 # 1 for CN/MCI, 2 for CN/AD, 3 for CN/MCI/AD, 4 for weird AD-only, 5 for MCI-only
 if modo == 3 or modo == 4:
     print("Setting for 3 classes")
     classNo = 3 # Expected value
@@ -168,7 +166,7 @@ import imgaug.augmenters as iaa
 rotaterand = lambda aug: iaa.Sometimes(0.6, aug)
 elastrand = lambda aug: iaa.Sometimes(0.3, aug)
 seq = iaa.Sequential([
-    rotaterand(iaa.Rotate((-45, 45))),
+    rotaterand(iaa.Rotate((-3, 3))),
     elastrand(iaa.ElasticTransformation(alpha=(0, 0.5), sigma=0.1))
 ])
 
@@ -179,10 +177,6 @@ def load_image(file, label):
         nifti = ne.resizeADNI(nifti, w, h, d, stripped=True)
     else:
         nifti = ne.organiseADNI(nifti, w, h, d, strip=strip_mode)
-    # Augmentation
-    data = {'image': nifti}
-    aug_data = aug(**data)
-    nifti = aug_data['image']
     
     nifti = tf.convert_to_tensor(nifti, np.float32)
     return nifti, label
@@ -204,7 +198,7 @@ def load_slice(file, label):
     slice = nifti[:,:,n]
     slice = ne.organiseSlice(slice, w, h, strip=strip_mode)
     # Augmentation
-    slice = seq(images=slice)
+    slice = seq(image=slice)
     slice = tf.convert_to_tensor(slice, np.float32)
     return slice, label
 
@@ -284,7 +278,7 @@ def gen_basic_model(width, height, channels, classes=3): # Baby mode
     return model
 
 def gen_advanced_2d_model(width=169, height=208, depth=179, classes=2):
-    modelname = "Advanced-2D-CNN"
+    modelname = "Advanced-2DSlice-CNN"
     #print(modelname)
     inputs = keras.Input((width, height, depth))
     
@@ -298,12 +292,12 @@ def gen_advanced_2d_model(width=169, height=208, depth=179, classes=2):
     x = layers.MaxPool2D(pool_size=2, strides=2)(x)
     x = layers.Dropout(0.1)(x)
     
-    x = layers.Conv2D(filters=32, kernel_size=5, padding='valid', activation='relu', data_format="channels_last")(x)
+    x = layers.Conv2D(filters=32, kernel_size=5, padding='valid', kernel_regularizer =tf.keras.regularizers.l2( l=0.01), activation='relu', data_format="channels_last")(x)
     x = layers.BatchNormalization()(x)
     x = layers.MaxPool2D(pool_size=2, strides=2)(x)
     x = layers.Dropout(0.1)(x)
     
-    x = layers.Conv2D(filters=64, kernel_size=5, padding='valid', activation='relu', data_format="channels_last")(x)
+    x = layers.Conv2D(filters=64, kernel_size=5, padding='valid', kernel_regularizer =tf.keras.regularizers.l2( l=0.01), activation='relu', data_format="channels_last")(x)
     x = layers.BatchNormalization()(x)
     x = layers.MaxPool2D(pool_size=2, strides=2)(x)
     x = layers.Dropout(0.1)(x)
@@ -318,9 +312,6 @@ def gen_advanced_2d_model(width=169, height=208, depth=179, classes=2):
     model = keras.Model(inputs, outputs, name=modelname)
     
     return model
-
-# Build model.
-optim = keras.optimizers.Adam(learning_rate=0.001)# , epsilon=1e-3) # LR chosen based on principle but double-check this later
 
 # Custom callbacks (aka make keras actually report stuff during training)
 class CustomCallback(keras.callbacks.Callback):
@@ -342,6 +333,20 @@ for index,value in enumerate(class_weights):
 #class_weight_dict = {i:w for i,w in enumerate(class_weights)}
 print("Class weight distribution will be:", class_weight_dict)
 '''
+# Build model.
+optim = keras.optimizers.Adam(learning_rate=0.0001)# , epsilon=1e-3) # LR chosen based on principle but double-check this later
+
+# Checkpointing & Early Stopping
+if batch_size > 1:
+    metric = 'binary_accuracy'
+else:
+    metric = 'accuracy'
+mon = 'val_' +metric
+es = EarlyStopping(monitor=mon, patience=10, restore_best_weights=True) # Temporarily turning this off because I want to observe the full scope
+checkpointname = "/scratch/mssric004/Checkpoints/testing-{epoch:02d}.ckpt"
+localcheck = "/scratch/mssric004/TrueChecks/" + modelname +".ckpt"
+mc = ModelCheckpoint(checkpointname, monitor=mon, mode='auto', verbose=2, save_weights_only=True, save_best_only=False) #Maybe change to true so we can more easily access the "best" epoch
+
 # Run the model
 print("\nGenerating models...")
 
@@ -369,39 +374,29 @@ def generateModels(start, stop):
         model = gen_advanced_2d_model(w, h, channels, classes=classNo)
         if i == start:
             model.summary()
-        if batch_size > 1:
-            metric = 'binary_accuracy'
-        else:
-            metric = 'accuracy'
         if metric == 'binary_accuracy':
             model.compile(optimizer=optim, loss='categorical_crossentropy', metrics=[tf.keras.metrics.BinaryAccuracy()]) #metrics=['accuracy']) #metrics=[tf.keras.metrics.BinaryAccuracy()]
         else:
             model.compile(optimizer=optim, loss='categorical_crossentropy', metrics=['accuracy']) #metrics=[tf.keras.metrics.BinaryAccuracy()]
         print("Metric being used:", metric)
         
-        # Checkpointing & Early Stopping
-        es = EarlyStopping(monitor='val_'+metric, patience=5, restore_best_weights=True)
-        checkpointname = "/2d_V1_checkpoints/slice" +str(n) +".h5"
-        if testing_mode:
-            checkpointname = "2d_V1_checkpoints_testing.h5"
-        mc = ModelCheckpoint(checkpointname, monitor='val_loss', mode='min', verbose=1, save_best_only=True) #Maybe change to true so we can more easily access the "best" epoch
-        if testing_mode:
-            log_dir = "/scratch/mssric004/test_logs/fit/2dslice/" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-        else:
-            log_dir = "/scratch/mssric004/logs/fit/2dsliceNEO/" + logname + "/slice" +str(n) +"_" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-        tb = TensorBoard(log_dir=log_dir, histogram_freq=1)
-        
         # Fitting time
         if testing_mode:
-            history = model.fit(train_set, validation_data=validation_set, epochs=epochs, verbose=0, callbacks=[CustomCallback()]) # DON'T SPECIFY BATCH SIZE, CAUSE INPUT IS ALREADY A BATCHED DATASET
+            history = model.fit(train_set, validation_data=validation_set, epochs=epochs, verbose=0, callbacks=[be, CustomCallback()]) # DON'T SPECIFY BATCH SIZE, CAUSE INPUT IS ALREADY A BATCHED DATASET
         else:
-            history = model.fit(train_set, validation_data=validation_set, epochs=epochs, verbose=0, callbacks=[es], shuffle=True)
+            history = model.fit(train_set, validation_data=validation_set, epochs=epochs, verbose=0, callbacks=[es, be], shuffle=True)
         modelname = "model-"+str(n)
         models.append(tuple((modelname, model)))
         print(history.history)
         weight = history.history['val_'+metric][-1]
         weights.append(weight)
         epochdict[modelname] = len(history.history['val_loss'])
+        # Clean up checkpoints
+        found = glob.glob(localcheck+"*")
+        removecount = 0
+        for checkfile in found:
+            removecount += 1
+            os.remove(checkfile)
     return models, weights, epochdict
 
 def generatePriorityModels(slices):
@@ -417,34 +412,30 @@ def generatePriorityModels(slices):
         print(display)
         # Set up a model
         model = gen_advanced_2d_model(w, h, channels, classes=classNo)
-        if batch_size > 1:
-            metric = 'binary_accuracy'
-        else:
-            metric = 'accuracy'
         if metric == 'binary_accuracy':
             model.compile(optimizer=optim, loss='categorical_crossentropy', metrics=[tf.keras.metrics.BinaryAccuracy()]) #metrics=['accuracy']) #metrics=[tf.keras.metrics.BinaryAccuracy()]
         else:
             model.compile(optimizer=optim, loss='categorical_crossentropy', metrics=['accuracy']) #metrics=[tf.keras.metrics.BinaryAccuracy()]
         print("Metric being used:", metric)
         
-        # Checkpointing & Early Stopping
-        es = EarlyStopping(monitor='val_'+metric, patience=5, restore_best_weights=True)
-        checkpointname = "/2d_V1_checkpoints/slice" +str(n) +".h5"
-        if testing_mode:
-            checkpointname = "2d_V1_checkpoints_testing.h5"
-        mc = ModelCheckpoint(checkpointname, monitor='val_loss', mode='min', verbose=1, save_best_only=True) #Maybe change to true so we can more easily access the "best" epoch
-        if testing_mode:
-            log_dir = "/scratch/mssric004/test_logs/fit/2dslice/" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-        else:
-            log_dir = "/scratch/mssric004/logs/fit/2dsliceNEO/" + logname + "/slice" +str(n) +"_" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-        tb = TensorBoard(log_dir=log_dir, histogram_freq=1)
+        # Re-instantiate here
+        be = ModelCheckpoint(localcheck, monitor=mon, mode='auto', verbose=2, save_weights_only=True, save_best_only=True, initial_value_threshold=0)
         
         # Fitting time
         if testing_mode:
-            history = model.fit(train_set, validation_data=validation_set, epochs=epochs) # DON'T SPECIFY BATCH SIZE, CAUSE INPUT IS ALREADY A BATCHED DATASET
+            history = model.fit(train_set, validation_data=validation_set, callbacks=[be, CustomCallback()], epochs=epochs) # DON'T SPECIFY BATCH SIZE, CAUSE INPUT IS ALREADY A BATCHED DATASET
         else:
-            history = model.fit(train_set, validation_data=validation_set, epochs=epochs, verbose=0, callbacks=[es], shuffle=True)
+            history = model.fit(train_set, validation_data=validation_set, epochs=epochs, verbose=0, callbacks=[be, es], shuffle=True)
         modelname = "model-"+str(n)
+        # Load best checkpoint
+        model.load_weights(localcheck)
+        # Clean up checkpoints
+        found = glob.glob(localcheck+"*")
+        removecount = 0
+        for checkfile in found:
+            removecount += 1
+            os.remove(checkfile)
+            
         models.append(tuple((modelname, model)))
         print(history.history)
         weight = history.history['val_'+metric][-1]
@@ -452,13 +443,13 @@ def generatePriorityModels(slices):
         epochdict[modelname] = len(history.history['val_loss'])
     return models, weights, epochdict
 
-startpoint = 50 # According to SelectSlices findings
-endpoint = 101 # # Remember, it will end at n-1
+startpoint = 101 # According to SelectSlices findings
+endpoint = 158#101 # # Remember, it will end at n-1
 # and the after, do 100-157
 #if testing_mode:
 if testing_mode:
     startpoint = 101
-    endpoint = 151
+    endpoint = 102
 
 tic = perf_counter()
 
@@ -474,7 +465,7 @@ wcount = startpoint
 for weight in weights:
     #print("Slice", wcount, "-", round(weight,2)*100)
     wcount += 1
-thresh = 60
+thresh = 65
 print("********\nSlices with > ", thresh, "% validation acc:", sep='')
 try:
     for i in range(len(weights)):
@@ -540,7 +531,7 @@ else:
     print("Evaluating...")
     for j in range(len(model_list)):
         n = priority_slices[j]
-        print(model_list[j][0], "gets tested using slice", n)
+        #print(model_list[j][0], "gets tested using slice", n)
         scores = model_list[j][1].evaluate(test_set, verbose=0)
         acc = scores[1]*100
         loss = scores[0]
@@ -588,8 +579,9 @@ print("Attempting to save this big list of models.")
 #    os.mkdir(logname)
 #for model in model_list:
 #    model[1].save(logname+"/"+model[0]+".h5")
-for model in model_list:
-    model[1].save_weights("/scratch/mssric004/SliceCheckpointsPt2/"+model[0]+".h5")
+if not testing_mode:
+    for model in model_list:
+        model[1].save_weights("/scratch/mssric004/SliceCheckpointsPt2/"+model[0]+".h5")
 
 
 toc_total = perf_counter()
