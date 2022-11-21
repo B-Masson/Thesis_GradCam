@@ -1,12 +1,9 @@
 # Core 3D model implementation
 # Richard Masson
-# Info: Grabbing the data, my homie.
-# Last use in 2021: October 29th
 print("\nIMPLEMENTATION: NEO")
-desc = "Advanced model. Re-evaluating aug situation."
+desc = "Advanced model. 3D Model."
 print(desc)
 import os
-#import subprocess as sp
 from time import perf_counter
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2' 
 import sys
@@ -41,11 +38,7 @@ tic_total = perf_counter()
 gpus = tf.config.experimental.list_physical_devices('GPU')
 for gpu in gpus:
   tf.config.experimental.set_memory_growth(gpu, True)
-'''
-config = tf.compat.v1.ConfigProto()
-config.gpu_options.allow_growth=True
-sess = tf.compat.v1.Session(config=config)
-'''
+
 from datetime import date
 print("Today's date:", date.today())
 
@@ -63,7 +56,7 @@ trimming = True
 bad_data = False
 aug = True
 reg = True
-logname = "NEO_V6-noaug-re"
+logname = "NEO_V6-AD-ultimate"
 modelname = "ADModel_"+logname
 if not testing_mode:
     if not pure_mode:
@@ -75,8 +68,8 @@ if testing_mode or pure_mode:
     epochs = 1 #Small for testing purposes
     batch_size = 3
 else:
-    epochs = 25
-    batch_size = 3 # Going to need to fiddle with this over time (balance time save vs. running out of memory)
+    epochs = 40
+    batch_size = 3
 
 # Define image size (lower image resolution in order to speed up for broad testing)
 if testing_mode:
@@ -84,18 +77,16 @@ if testing_mode:
 elif pure_mode:
     scale = 2
 else:
-    scale = 1 # For now
+    scale = 1
 w = int(169/scale)
 h = int(208/scale)
 d = int(179/scale)
 
 # Prepare parameters for fetching the data
-modo = 2 # 1 for CN/MCI, 2 for CN/AD, 3 for CN/MCI/AD, 4 for weird AD-only, 5 for MCI-only
+modo = 2 # 1 for CN/MCI, 2 for CN/AD, 3 for CN/MCI/AD, 4 for AD-only, 5 for MCI-only
 if modo == 3 or modo == 4:
-    #print("Setting for 3 classes")
     classNo = 3 # Expected value
 else:
-    #print("Setting for 2 classes")
     classNo = 2 # Expected value
 if testing_mode: # CHANGIN THINGS UP
 	filename = ("Directories/test_adni_" + str(modo)) # CURRENTLY AIMING AT TINY ZONE
@@ -195,17 +186,14 @@ if memory_mode:
 aug_rate = 0
 if aug:
     aug_rate = 1 # Activate augmentation
-    # There has to be an easier way to say True = 1 and False = 0 without it being treated as a boolean
 else:
     print("NO AUGMENTATION.")
 def get_augmentation(patch_size):
     return Compose([
-        Rotate((-3, 3), (-3, 3), (-3, 3), p=0.6), #0.5
-        #Flip(2, p=1)
-        ElasticTransform((0, 0.5), interpolation=2, p=0.3), #0.1
-        #GaussianNoise(var_limit=(1, 1), p=1), #0.1
-        RandomGamma(gamma_limit=(0.6, 1), p=0) #0.4
-    ], p=aug_rate) #0.9 #NOTE: Temp not doing augmentation. Want to take time to observe the effects of this stuff
+        Rotate((-3, 3), (-3, 3), (-3, 3), p=0.6),
+        ElasticTransform((0, 0.05), interpolation=2, p=0.3),
+        RandomGamma(gamma_limit=(0.6, 1), p=0)
+    ], p=aug_rate)
 aug = get_augmentation((w,h,d)) # For augmentations
 
 def load_image(file, label):
@@ -215,12 +203,12 @@ def load_image(file, label):
         nifti = ne.resizeADNI(nifti, w, h, d, stripped=True)
     else:
         nifti = ne.organiseADNI(nifti, w, h, d, strip=strip_mode)
-    '''
+    
     # Augmentation
     data = {'image': nifti}
     aug_data = aug(**data)
     nifti = aug_data['image']
-    '''
+    
     nifti = tf.convert_to_tensor(nifti, np.float32)
     
     return nifti, label
@@ -255,19 +243,16 @@ def load_val_wrapper(file, labels):
 def load_test_wrapper(file):
     return tf.py_function(load_test, [file], [np.float32])
 
-# This needs to exist in order to allow for us to use an accuracy metric without getting weird errors
+# This needs to exist in order to allow for us to use an accuracy metric
 def fix_shape(images, labels):
-    #print("Going in:", images.shape, "|", labels.shape)
     images.set_shape([None, w, h, d, 1])
     labels.set_shape([images.shape[0], classNo])
-    #print("Going out:", images.shape, "|", labels.shape)
     return images, labels
 
 def fix_wrapper(file, labels):
     return tf.py_function(fix_shape, [file, labels], [np.float32, np.float32])
 
 print("Setting up dataloaders...")
-# TO-DO: Augmentation stuff
 # Data loaders
 train = tf.data.Dataset.from_tensor_slices((x_train, y_train))
 if not pure_mode:
@@ -292,46 +277,6 @@ if not pure_mode:
     )
 
 # Model architecture go here
-# For consideration: https://www.frontiersin.org/articles/10.3389/fbioe.2020.534592/full#B22
-# Current inspiration: https://ieeexplore.ieee.org/document/7780459 (VGG19)
-def gen_basic_model(width=208, height=240, depth=256, classes=3): # Baby mode
-    modelname = "Basic-CNN"
-    print(modelname)
-    # Initial build version - no explicit Sequential definition
-    inputs = keras.Input((width, height, depth, 1)) # Added extra dimension in preprocessing to accomodate that 4th dim
-
-    x = layers.Conv3D(filters=32, kernel_size=5, padding='same', activation="relu")(inputs) # Layer 1: Simple 32 node start
-    #x = layers.Conv3D(filters=32, kernel_size=5, padding='same', kernel_regularizer =tf.keras.regularizers.l2( l=0.01), activation="relu")(inputs) # Layer 1: Simple 32 node start
-    #x = layers.Conv3D(filters=32, kernel_size=5, padding='valid', kernel_regularizer =tf.keras.regularizers.l2( l=0.01), activation="relu")(inputs) # Layer 1: Simple 32 node star
-    x = layers.MaxPool3D(pool_size=5, strides=5)(x) # Usually max pool after the conv layer
-    
-    x = layers.Flatten()(x)
-    x = layers.Dense(units=128, activation="relu")(x) # Implement a simple dense layer with double units
-
-    outputs = layers.Dense(units=classNo, activation="softmax")(x) # Units = no of classes. Also softmax because we want that probability output
-
-    # Define the model.
-    model = keras.Model(inputs, outputs, name=modelname)
-
-    return model
-
-def gen_turbobasic_model(width=169, height=208, depth=179, classes=2):
-    modelname = "Turbobasic-CNN"
-    print(modelname)
-    inputs = keras.Input((width, height, depth, 1))
-    
-    x = layers.Conv3D(filters=16, kernel_size=5, padding='valid', activation='relu')(inputs)
-    x = layers.MaxPool3D(pool_size=10, strides=10)(x)
-    
-    x = layers.Flatten()(x)
-    x = layers.Dense(units=56)(x)
-    
-    outputs = layers.Dense(units=classes, activation='softmax')(x)
-    
-    model = keras.Model(inputs, outputs, name=modelname)
-    
-    return model
-
 def gen_advanced_model(width=169, height=208, depth=179, classes=2):
     modelname = "Advanced-3D-CNN"
     print(modelname)
@@ -402,36 +347,29 @@ tic = perf_counter()
 # Build model.
 if reg:
     print("USING ADVANCED MODEL.")
-    #model = gen_basic_model(width=w, height=h, depth=d, classes=classNo)
-    #model = gen_turbobasic_model(width=w, height=h, depth=d, classes=classNo)
     model = gen_advanced_model(width=w, height=h, depth=d, classes=classNo)
-    #model = gen_model_2(width=w, height=h, depth=d, classes=classNo)
 else:
     print("USING NO REGULARIZATION MODEL")
-    #model = gen_basic_noreg(width=w, height=h, depth=d, classes=classNo)
     model = gen_advanced_noreg(width=w, height=h, depth=d, classes=classNo)
 model.summary()
-optim = keras.optimizers.Adam(learning_rate=0.0001)# , epsilon=1e-3) # LR chosen based on principle but double-check this later
-#model.compile(optimizer=optim, loss='binary_crossentropy', metrics=['accuracy']) # Temp binary for only two classes
+optim = keras.optimizers.Adam(learning_rate=0.0001)
 if batch_size > 1:
     metric = 'binary_accuracy'
 else:
     metric = 'accuracy'
 if metric == 'binary_accuracy':
-    model.compile(optimizer=optim, loss='categorical_crossentropy', metrics=[tf.keras.metrics.BinaryAccuracy()]) #metrics=['accuracy']) #metrics=[tf.keras.metrics.BinaryAccuracy()]
+    model.compile(optimizer=optim, loss='categorical_crossentropy', metrics=[tf.keras.metrics.BinaryAccuracy()])
 else:
-    model.compile(optimizer=optim, loss='categorical_crossentropy', metrics=['accuracy']) #metrics=[tf.keras.metrics.BinaryAccuracy()]
+    model.compile(optimizer=optim, loss='categorical_crossentropy', metrics=['accuracy'])
 print("Metric being used:", metric)
-# ^^^^ Temp solution for the ol' "as_list() is not defined on an unknown TensorShape issue"
-# NOTE: LOOK AT THIS AGAIN WHEN DOING 3-WAY CLASS
 
 # Checkpointing & Early Stopping
 mon = 'val_' +metric
-es = EarlyStopping(monitor=mon, patience=10, restore_best_weights=True) # Temporarily turning this off because I want to observe the full scope
+es = EarlyStopping(monitor=mon, patience=10, restore_best_weights=True)
 checkpointname = "/scratch/mssric004/Checkpoints/testing-{epoch:02d}.ckpt"
 localcheck = "/scratch/mssric004/TrueChecks/" + modelname +".ckpt"
 be = ModelCheckpoint(localcheck, monitor=mon, mode='auto', verbose=2, save_weights_only=True, save_best_only=True)
-mc = ModelCheckpoint(checkpointname, monitor=mon, mode='auto', verbose=2, save_weights_only=True, save_best_only=False) #Maybe change to true so we can more easily access the "best" epoch
+mc = ModelCheckpoint(checkpointname, monitor=mon, mode='auto', verbose=2, save_weights_only=True, save_best_only=False)
 if testing_mode:
     log_dir = "/scratch/mssric004/test_logs/fit/neo/" + datetime.datetime.now().strftime("%d/%m/%Y-%H:%M")
 else:
@@ -459,29 +397,15 @@ class DebugCallback(keras.callbacks.Callback):
         #    print('')
     def on_train_batch_begin(self, batch, logs=None):
         print("...Training: start of batch {}".format(batch))
-'''
-# Setting class weights
-from sklearn.utils import class_weight
 
-y_org = np.argmax(y_train, axis=1)
-class_weights = class_weight.compute_class_weight('balanced', classes=np.unique(y_org), y=y_org)
-class_weight_dict = dict()
-for index,value in enumerate(class_weights):
-    class_weight_dict[index] = value
-#class_weight_dict = {i:w for i,w in enumerate(class_weights)}
-if not trimming:
-    print("Class weight distribution is:", class_weight_dict)
-'''
 # Run the model
 print("---------------------------\nFITTING MODEL")
 print("Params:", epochs, "epochs & batch size [", batch_size, "].")
 
 if testing_mode:
-    #history = model.fit(x_train, y_train, validation_data=(x_val, y_val), batch_size=batch_size, epochs=epochs, verbose=0)
-    history = model.fit(train_set, validation_data=validation_set, epochs=epochs, callbacks=[be], shuffle=True) # DON'T SPECIFY BATCH SIZE, CAUSE INPUT IS ALREADY A BATCHED DATASET
+    history = model.fit(train_set, validation_data=validation_set, epochs=epochs, callbacks=[be], shuffle=True)
 else:
     history = model.fit(train_set, validation_data=validation_set, epochs=epochs, callbacks=[es, be, CustomCallback()], verbose=0, shuffle=True)
-    #history = model.fit(train_set, validation_data=validation_set, epochs=epochs) #No callbacks
 
 toc = perf_counter()
 
@@ -494,27 +418,16 @@ if not testing_mode:
         except Exception as e:
             print("Couldn't save model. Reason:", e)
 print(history.history)
-'''
-print("Accuracy history:")
-epochcount = 1
-for accnum in history.history['val_'+metric]:
-    print("Epoch", epochcount, ":", accnum)
-    epochcount += 1
-'''
 
 def make_unique(file_name, extension):
     if os.path.isfile(file_name):
-        #print("I have determined that", file_name, "already exists.")
         expand = 1
         while True:
             new_file_name = file_name.split(extension)[0] + str(expand) + extension
-            #print("What about ", new_file_name, "?", sep='')
             if os.path.isfile(new_file_name):
-                #print("It ALSO exists.")
                 expand += 1
                 continue
             else:
-                #print("It does not exist. Excellent.")
                 file_name = new_file_name
                 break
     else:
@@ -574,7 +487,6 @@ epochcount = len(history.history['val_loss'])
 print("\nEvaluating using test data...")
 
 # First prepare the test data
-#print("Testing length check:", len(x_test), "&", len(y_test))
 test = tf.data.Dataset.from_tensor_slices((x_test, y_test))
 test_x = tf.data.Dataset.from_tensor_slices((x_test))
 print("Test data prepared.")
@@ -585,7 +497,7 @@ try:
         test.map(load_val_wrapper)
         .batch(batch_size)
         .prefetch(batch_size)
-    ) # Later we may need to use a different wrapper function? Not sure. 
+    )
 except:
     print("Couldn't assign test_set to a wrapper (for evaluation).")
 
@@ -595,47 +507,40 @@ try:
         .batch(batch_size)
         .prefetch(batch_size)
     )
-    #if not testing_mode: # NEED TO REWORK THIS
 except Exception as e:
     print("Couldn't assign test_set_x to a wrapper (for matrix). Reason:", e)
 
-# Test loop
-for i in range(2):
-    if i == 0:
-        print("\nUSING EARLYSTOPPING DEFAULT:")
-    elif i == 1:
-        # Load best checkpoint
-        print("\nLOADING BEST CHECKPOINT:")
-        model.load_weights(localcheck)
-    
-    try:
-        scores = model.evaluate(test_set, verbose=0) # Should not need to specify batch size, because of set
-        acc = scores[1]*100
-        loss = scores[0]
-        print("Evaluated scores - Acc:", acc, "Loss:", loss)
-    except:
-        print("Error occured during evaluation. Isn't this weird?\nTest set labels are:", y_test)
-    
-    from sklearn.metrics import classification_report, confusion_matrix, cohen_kappa_score
-    print("\nGenerating classification report...")
-    try:
-        y_pred = model.predict(test_set_x, verbose=0)
-        y_pred = np.argmax(y_pred, axis=1)
-        y_hat = np.argmax(y_test, axis=1)
-        rep = classification_report(y_hat, y_pred)
-        conf = confusion_matrix(y_hat, y_pred)
-        coh = cohen_kappa_score(y_hat, y_pred)
-        print(rep)
-        print("\nConfusion matrix:")
-        print(conf)
-        print("Cohen Kappa Score (0 = chance, 1 = perfect):", coh)
-        limit = min(30, len(y_hat))
-        print("\nActual test set (first ", (limit+1), "):", sep='')
-        print(y_hat[:limit])
-        print("Predictions are  as follows (first ", (limit+1), "):", sep='')
-        print(y_pred[:limit])
-    except:
-        print("Error occured in classification report (ie. predict). Test set labels are:\n", y_test)
+
+model.load_weights(localcheck)
+
+try:
+    scores = model.evaluate(test_set, verbose=0) # Should not need to specify batch size, because of set
+    acc = scores[1]*100
+    loss = scores[0]
+    print("Evaluated scores - Acc:", acc, "Loss:", loss)
+except:
+    print("Error occured during evaluation. Isn't this weird?\nTest set labels are:", y_test)
+
+from sklearn.metrics import classification_report, confusion_matrix, cohen_kappa_score
+print("\nGenerating classification report...")
+try:
+    y_pred = model.predict(test_set_x, verbose=0)
+    y_pred = np.argmax(y_pred, axis=1)
+    y_hat = np.argmax(y_test, axis=1)
+    rep = classification_report(y_hat, y_pred)
+    conf = confusion_matrix(y_hat, y_pred)
+    coh = cohen_kappa_score(y_hat, y_pred)
+    print(rep)
+    print("\nConfusion matrix:")
+    print(conf)
+    print("Cohen Kappa Score (0 = chance, 1 = perfect):", coh)
+    limit = min(30, len(y_hat))
+    print("\nActual test set (first ", (limit+1), "):", sep='')
+    print(y_hat[:limit])
+    print("Predictions are  as follows (first ", (limit+1), "):", sep='')
+    print(y_pred[:limit])
+except:
+    print("Error occured in classification report (ie. predict). Test set labels are:\n", y_test)
 
 # Clean up checkpoints
 print("Cleaning up...")

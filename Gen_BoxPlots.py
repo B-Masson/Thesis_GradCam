@@ -1,3 +1,5 @@
+# Generate box-plots using recorded mean accuracies
+# Richard Masson
 from statistics import mean
 import matplotlib
 from matplotlib import testing
@@ -9,8 +11,8 @@ print("Imports done.")
 
 print("Generating box plot for all stored means...")
 
-testing_mode = False
-run_all = False
+testing_mode = False # Write to sep file
+run_all = False # Let's you pick and choose
 
 # Sort out variables
 loc = "Means"
@@ -20,24 +22,23 @@ accs = []
 losses = []
 names = []
 save_loc = "Box-Plots/"
-logname = "Slice"
-
+logname = "Advanced3D"
+re_ord = False
 
 # Narrow down the list if necessary
-picks = ["SliceK_V2-prio-fixed.npz"]
+picks = ["K_V6-advanced-true.npz"] # Needs to have .npz
 if not run_all:
     removals = []
     if picks:
         print(mean_files)
         for m in mean_files:
-            print("accessing", m, end='')
+            print("Accessing", m, end='')
             if m not in picks:
-                #print(" | removed", end='')
+                print(" | removed", end='')
                 removals.append(m)
             print("")
     for r in removals:
         mean_files.remove(r)
-    
 
 # Append to dict
 for m in mean_files:
@@ -46,7 +47,6 @@ for m in mean_files:
     accs.append(means['arr_0'])
     losses.append(means['arr_1'])
     del means
-
 # Meta data
 print("Names len: ", len(names), ", Acc len: ", len(accs), ", Loss len: ", len(losses), sep='')
 for i in range(len(names)):
@@ -69,17 +69,13 @@ for nameagain in names:
 # Generate plots
 def make_unique(file_name, extension):
     if os.path.isfile(file_name):
-            #print("I have determined that", file_name, "already exists.")
             expand = 1
             while True:
                 new_file_name = file_name.split(extension)[0] + str(expand) + extension
-                #print("What about ", new_file_name, "?", sep='')
                 if os.path.isfile(new_file_name):
-                    #print("It ALSO exists.")
                     expand += 1
                     continue
                 else:
-                    #print("It does not exist. Excellent.")
                     file_name = new_file_name
                     break
     else:
@@ -88,13 +84,12 @@ def make_unique(file_name, extension):
     return file_name
 
 # Acc
-#print(accs)
 fig = plt.figure(figsize =(10, 7))
-#ax = fig.add_axes([0, 0, 1, 1])
-plt.boxplot(accs)
+plt.boxplot(accs, meanline=True, showmeans=True)
 ticks = np.arange(1, len(names)+1, 1)
 plt.xticks(ticks, names)
 plt.title("Accuracy Distribution across several experiments")
+plt.ylabel("Accuracy (%)")
 if testing_mode:
     mod = "test_"
 else:
@@ -104,19 +99,12 @@ plt.savefig(make_unique(savename, ".png"))
 plt.clf()
 # Loss
 fig = plt.figure(figsize =(10, 7))
-#ax = fig.add_axes([0, 0, 1, 1])
-plt.boxplot(losses)
+plt.boxplot(losses, meanline=True, showmeans=True)
 plt.xticks(ticks, names)
 plt.title("Loss Distribution across several experiments")
+plt.ylabel("Loss")
 savename = save_loc+mod+logname+"_loss.png"
 plt.savefig(make_unique(savename, ".png"))
 plt.clf()
-'''
-# Create a golden standard to compare output to
-data = np.random.normal(100, 20, 200)
-fig = plt.figure(figsize =(10, 7))
-plt.boxplot(data)
-savename = save_loc+logname+"_standard.png"
-plt.savefig(make_unique(savename, ".png"))
-'''
+
 print("Done!")
