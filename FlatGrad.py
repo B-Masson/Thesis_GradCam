@@ -1,3 +1,5 @@
+# 2D Gradient Map Generator (Old version)
+# Richard Masson
 import tensorflow as tf
 from tensorflow import keras
 import os
@@ -15,7 +17,7 @@ from collections import Counter
 from tensorflow.keras.models import Model
 print("Imports working.")
 
-# Get da model
+# Get the model
 priority_slices = [56, 57, 58, 64, 75, 85, 88, 89, 96]
 classy = "CN"
 
@@ -28,7 +30,7 @@ model_name = "Models/2DSlice_V2-prio/model-"+str(modelnum)+".h5"
 model = load_model(model_name)
 print("Keras model loaded in.")
 
-# Get da input
+# Get the input
 class_param = ""
 if classy == "CN":
     class_param = "-CN"
@@ -44,8 +46,6 @@ labels = label_file.read()
 labels = labels.split("\n")
 labels = [ int(i) for i in labels]
 label_file.close()
-#labels = to_categorical(labels, num_classes=class_no, dtype='float32')
-#print(path)
 print("Predicting on", len(path), "images.")
 print("Distribution:", Counter(labels))
 
@@ -157,9 +157,6 @@ print("Class:", labels[0])
 prediction = model.predict(img)
 print("Prediction:", prediction)
 i = np.argmax(prediction[0])
-
-#for idx in range(len(model.layers)):
-#  print(model.get_layer(index = idx).name)
 
 print("Computing Grad Map...")
 icam = GradCAM(model, i, 'conv2d')

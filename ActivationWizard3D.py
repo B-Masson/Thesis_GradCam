@@ -1,5 +1,5 @@
-# Can you solve all my problems, O Activation Wizard?
-# Had to compile it to use sparse loss, for some reason.
+# He finds all the activation values for us. He is the Activation Wizard (2D)
+# Richard Masson
 import tensorflow as tf
 tf.compat.v1.disable_eager_execution()
 from tensorflow import keras
@@ -43,8 +43,7 @@ model = load_model(model_name)
 print("Keras model loaded in. [", model_name, "]")
 
 print("Compiling...")
-optim = keras.optimizers.Adam(learning_rate=0.001)# , epsilon=1e-3) # LR chosen based on principle but double-check this later
-#model.compile(optimizer=optim, loss='sparse_categorical_crossentropy', metrics=[tf.keras.metrics.BinaryAccuracy()])
+optim = keras.optimizers.Adam(learning_rate=0.001)
 model.compile(optimizer=optim,loss='categorical_crossentropy', metrics=['accuracy'])
 
 # Grab that data now
@@ -72,33 +71,16 @@ labels = labels.split("\n")
 labels = [ int(i) for i in labels]
 label_file.close()
 labs = to_categorical(labels, num_classes=classNo, dtype='float32')
-#labels = to_categorical(labels, num_classes=class_no, dtype='float32')
-#print(path)
 print("Predicting on", len(path), "images.")
-#print(path)
 print("Distribution:", Counter(labels))
-#GPUtil.showUtilization()
-'''
-# Dataset loaders
-def load_img(file): # NO AUG, NO LABEL
-    loc = file.numpy().decode('utf-8')
-    nifti = np.asarray(nib.load(loc).get_fdata())
-    nifti = ne.organiseADNI(nifti, w, h, d, strip=strip_mode)
-    nifti = tf.convert_to_tensor(nifti, np.float32)
-    return nifti
 
-def load_img_wrapper(file):
-    return tf.py_function(load_img, [file], [np.float32])
-'''
 print("Data obtained. Mapping to a dataset...")
 
 x_arr = []
 tp = []
 kp = []
 saveloc = "Activations/3D/"
-#for i in range (len(path)):
 for i in range(1):
-    # Incredibly dirty way of preparing this data
     func = nib.load(path[i])
     image = np.asarray(func.get_fdata(dtype='float32'))
     image = ne.organiseADNI(image, w, h, d, strip=strip_mode)
@@ -106,7 +88,6 @@ for i in range(1):
     print("For:", path[i])
     print("Class:", labels[i])
     print("Prediction:", model.predict(image))
-    # Here goes nothing
     lab = to_categorical(labels[i])
     layername = "conv3d"
     print("Getting activations")
@@ -127,16 +108,10 @@ for i in range(1):
     plt.imshow(gslice)
     slicename = saveloc + "image" +str(i) +"_class" +str(labels[i]) +".png"
     plt.savefig(slicename)
-    #plt.show()
     new_image = nib.Nifti1Image(grad, func.affine)
     saveto = saveloc + "Full/image" +str(i) +"_class" +str(labels[i]) +".nii.gz"
     nib.save(new_image, saveto)
     print("Saved to", saveto)
-    #conv = get_activations(model, image, layer_names=layername)
-    #grads = keract.get_gradients_of_activations(model, image, [1], layer_names=layername, output_format='simple')
-    #print("Grads")
-    #[print(k, '->', v.shape, '- Numpy array') for (k, v) in grads.items()]
-
 
 keras.backend.clear_session()
 print("\nAll done.")

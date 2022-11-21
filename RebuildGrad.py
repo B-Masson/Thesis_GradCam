@@ -1,4 +1,5 @@
-# Can you solve all my problems, O Activation Wizard?
+# 2D Gradient Map Generator (Newer version)
+# Richard Masson
 import tensorflow as tf
 from tensorflow import keras
 import os
@@ -33,16 +34,7 @@ if memory_mode:
 
 priority_slices = [56, 57, 58, 64, 75, 85, 88, 89, 96]
 slice_range = np.arange(50, 100)
-# Just pick a single model for now
-#modelnum = 58
-#model_name = "Models/2DSlice_V2-prio/model-"+str(modelnum)+".h5"
 model_dir = "Models/2DSlice_V1.5-entire/model-"
-#model = load_model(model_name)
-#print("Keras model loaded in. [", model_name, "]")
-
-#print("Compiling...")
-#optim = keras.optimizers.Adam(learning_rate=0.001)# , epsilon=1e-3) # LR chosen based on principle but double-check this later
-#model.compile(optimizer=optim, loss='categorical_crossentropy', metrics=[tf.keras.metrics.BinaryAccuracy()])
 
 # Grab that data now
 print("\nExtracting data")
@@ -67,26 +59,9 @@ labels = label_file.read()
 labels = labels.split("\n")
 labels = [ int(i) for i in labels]
 label_file.close()
-#labels = to_categorical(labels, num_classes=class_no, dtype='float32')
-#print(path)
 print("Predicting on", len(path), "images.")
-#print(path)
 print("Distribution:", Counter(labels))
-#GPUtil.showUtilization()
-'''
-# Dataset loaders
-def load_img(file): # NO AUG, NO LABEL
-    loc = file.numpy().decode('utf-8')
-    nifti = np.asarray(nib.load(loc).get_fdata())
-    nifti = ne.organiseADNI(nifti, w, h, d, strip=strip_mode)
-    nifti = tf.convert_to_tensor(nifti, np.float32)
-    return nifti
 
-def load_img_wrapper(file):
-    return tf.py_function(load_img, [file], [np.float32])
-'''
-
-# Incredibly dirty way of preparing this data
 func = nib.load(path[0])
 image_raw = np.asarray((func).get_fdata(dtype='float32'))
 image_raw = ne.organiseADNI(image_raw, w, h, d, strip=strip_mode)
@@ -205,7 +180,6 @@ class GradCAM:
 actloc = "Activations/2D/"
 gradloc = "Gradients/2D/"
 depth = len(slice_range)
-#depth = 30
 testvolume = np.zeros((169, 208))
 actvolume = np.zeros((167, 206))
 gradvolume = []
@@ -217,17 +191,15 @@ for i in range(depth):
     model_name = model_dir + str(slicenum)
     model = load_model(model_name)
     print("Keras model loaded in. [", model_name, "]")
-    #model.summary()
-    #print("Compiling...")
-    optim = keras.optimizers.Adam(learning_rate=0.001)# , epsilon=1e-3) # LR chosen based on principle but double-check this later
+    
+    optim = keras.optimizers.Adam(learning_rate=0.001)
     model.compile(optimizer=optim, loss='categorical_crossentropy', metrics=[tf.keras.metrics.BinaryAccuracy()])
     
     # Prep slice
     image = image_raw[:,:,slicenum]
     testvolume = np.dstack((testvolume, image))
     image = np.expand_dims(image, axis=0)
-    #print("Image shape:", image.shape)
-    # Here goes nothing
+
     if i == 0:
         layername = "conv2d"
     else:
@@ -243,12 +215,7 @@ for i in range(depth):
     plt.savefig(slicename)
     plt.clf()
     actvolume = np.dstack((actvolume, grad))
-    '''
-    kerpred = model.predict(image)
-    kerpreddy = np.argmax(kerpred, axis=1)
-    print("Keras prediction:", kerpred[0], "| (", kerpreddy[0], "vs. actual:", labels[i], ")")
-    kp.append(kerpreddy[0])
-    '''
+
 #Maybe make it smaller?
 actvolume = actvolume.astype("uint8")
 testvolume = testvolume.astype("uint8")
@@ -259,10 +226,7 @@ new_image = nib.Nifti1Image(actvolume, func.affine)
 nibname = "Gradients/2D/AD-flat.nii.gz"
 print("Saving volume to", nibname)
 nib.save(new_image, nibname)
-#test_image = nib.Nifti1Image(testvolume, func.affine)
-#nib.save(test_image, "Gradients/2D/TEST.nii.gz")
-#plt.imshow(actvolume[:,:,1])
-#plt.show()
+
 keras.backend.clear_session()
 print("\nAll done.")
 

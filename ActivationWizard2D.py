@@ -1,4 +1,5 @@
-# Can you solve all my problems, O Activation Wizard?
+# He finds all the activation values for us. He is the Activation Wizard (2D)
+# Richard Masson
 import tensorflow as tf
 from tensorflow import keras
 import os
@@ -38,15 +39,12 @@ if memory_mode:
 
 priority_slices = [56, 57, 58, 64, 75, 85, 88, 89, 96]
 slice_range = np.arange(50, 100)
-# Just pick a single model for now
-#modelnum = 58
-#model_name = "Models/2DSlice_V2-prio/model-"+str(modelnum)+".h5"
 model_dir = "Models/2DSlice_V1.5-entire/model-"
 model = load_model(model_name)
 print("Keras model loaded in. [", model_name, "]")
 
 print("Compiling...")
-optim = keras.optimizers.Adam(learning_rate=0.001)# , epsilon=1e-3) # LR chosen based on principle but double-check this later
+optim = keras.optimizers.Adam(learning_rate=0.001)
 model.compile(optimizer=optim, loss='categorical_crossentropy', metrics=[tf.keras.metrics.BinaryAccuracy()])
 
 # Grab that data now
@@ -72,24 +70,10 @@ labels = label_file.read()
 labels = labels.split("\n")
 labels = [ int(i) for i in labels]
 label_file.close()
-#labels = to_categorical(labels, num_classes=class_no, dtype='float32')
-#print(path)
-print("Predicting on", len(path), "images.")
-#print(path)
-print("Distribution:", Counter(labels))
-#GPUtil.showUtilization()
-'''
-# Dataset loaders
-def load_img(file): # NO AUG, NO LABEL
-    loc = file.numpy().decode('utf-8')
-    nifti = np.asarray(nib.load(loc).get_fdata())
-    nifti = ne.organiseADNI(nifti, w, h, d, strip=strip_mode)
-    nifti = tf.convert_to_tensor(nifti, np.float32)
-    return nifti
 
-def load_img_wrapper(file):
-    return tf.py_function(load_img, [file], [np.float32])
-'''
+print("Predicting on", len(path), "images.")
+print("Distribution:", Counter(labels))
+
 print("Data obtained. Mapping to a dataset...")
 
 x_arr = []
@@ -97,28 +81,16 @@ tp = []
 kp = []
 saveloc = "Activations/2D/"
 for i in range (len(path)):
-#for i in range(1):
-    # Incredibly dirty way of preparing this data
     image = np.asarray(nib.load(path[i]).get_fdata(dtype='float32'))
     image = ne.organiseADNI(image, w, h, d, strip=strip_mode)
     image = image[:,:,modelnum]
     image = np.expand_dims(image, axis=0)
-    # Here goes nothing
     lab = to_categorical(labels[i])
     layername = "conv2d_2"
     print("Getting activations for layer:", layername)
     activations = keract2.get_activations(model, image, layer_names=layername)
-    #activations = get_activations(model, image, auto_compile=True, layer_names=layername)
-    # Print activations shapes
     [print(k, '->', v.shape, '- Numpy array') for (k, v) in activations.items()]
     keract.display_activations(activations, save=saving, directory='Activations')
-    #keract.display_heatmaps(conv, image, directory='Activations', save=True, fix=True, merge_filters=True)
-    '''
-    kerpred = model.predict(image)
-    kerpreddy = np.argmax(kerpred, axis=1)
-    print("Keras prediction:", kerpred[0], "| (", kerpreddy[0], "vs. actual:", labels[i], ")")
-    kp.append(kerpreddy[0])
-    '''
 
 keras.backend.clear_session()
 print("\nAll done.")

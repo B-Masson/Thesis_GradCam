@@ -1,3 +1,5 @@
+# 3D Gradient Map Generator
+# Richard Masson
 import tensorflow as tf
 from tensorflow import keras
 import os
@@ -18,7 +20,7 @@ print("Imports working.")
 subsect = [50, 101]
 sub = False
 
-# Get da model
+# Get the model
 classy = "CN"
 
 # Just pick a single model for now
@@ -27,11 +29,10 @@ model = load_model(model_name)
 print("Keras model loaded in.")
 
 print("Compiling...")
-optim = keras.optimizers.Adam(learning_rate=0.001)# , epsilon=1e-3) # LR chosen based on principle but double-check this later
-#model.compile(optimizer=optim, loss='sparse_categorical_crossentropy', metrics=[tf.keras.metrics.BinaryAccuracy()])
+optim = keras.optimizers.Adam(learning_rate=0.001)
 model.compile(optimizer=optim,loss='categorical_crossentropy', metrics=['accuracy'])
 
-# Get da input
+# Get the input
 class_param = ""
 if classy == "CN":
     class_param = "-CN"
@@ -47,8 +48,6 @@ labels = label_file.read()
 labels = labels.split("\n")
 labels = [ int(i) for i in labels]
 label_file.close()
-#labels = to_categorical(labels, num_classes=class_no, dtype='float32')
-#print(path)
 print("Predicting on", len(path), "images.")
 print("Distribution:", Counter(labels))
 
@@ -177,8 +176,6 @@ prediction = model.predict(img)
 print("Prediction:", prediction[0])
 i = np.argmax(prediction[0])
 
-#for idx in range(len(model.layers)):
-#    print(model.get_layer(index = idx).name)
 print("Instantiating Grad Map...")
 icam = GradCAM(model, prediction[0], 'conv3d')
 print("Generating heatmap.")
@@ -193,33 +190,5 @@ if sub:
 else:
     new_image = nib.Nifti1Image(heatmap, func.affine)
     nib.save(new_image, "Gradients/3D/CN-round.nii.gz")
-
-#image = np.squeeze(img, axis=3)
-#image = np.squeeze(image, axis=0)
-#print("Img is:", image.shape)
-#image = (image * 255).astype("uint8")
-#image = cv2.applyColorMap(image, cv2.COLORMAP_BONE)
-#print("Img is:", image.shape)
-'''
-#(heatmap, output) = icam.overlay_heatmap(heatmap, image, alpha=0.5)
-slicerange = range(25, 156, 25)
-print("Time to try and display:")
-for sliceno in slicerange:
-    print("Slice", sliceno)
-    heatmap2d = heatmap[:,:,sliceno]
-    heatmap2d = icam.heatmap_only(heatmap2d, colormap=cv2.COLORMAP_INFERNO)
-    plt.imshow(heatmap2d)
-    plt.show()
-    plt.clf()
-'''
-'''
-print("Displaying...")
-fig, ax = plt.subplots(1, 3)
-ax[0].imshow(heatmap)
-ax[1].imshow(image)
-ax[2].imshow(output)
-plt.show()
-fig.savefig("Grad_NEO/"+classy+"-map-slice-"+str(modelnum)+".png")
-'''
 
 print("All done!")
